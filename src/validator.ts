@@ -37,9 +37,17 @@ function cssSelector(cls: string): string {
     .replace(/\]/g, '\\]')
     .replace(/\(/g, '\\(')
     .replace(/\)/g, '\\)')
+    .replace(/=/g, '\\=')
+    .replace(/>/g, '\\>')
+    .replace(/&/g, '\\&')
+    .replace(/~/g, '\\~')
+    .replace(/\+/g, '\\+')
     .replace(/#/g, '\\#')
     .replace(/%/g, '\\%')
     .replace(/!/g, '\\!')
+    .replace(/,/g, '\\,')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
 }
 
 function selectorInOutput(selector: string, output: string): boolean {
