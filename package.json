@@ -1,6 +1,6 @@
 {
   "name": "@weerachai06/tw-scanner",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "AST-based Tailwind v4 class validator for React projects",
   "type": "module",
   "bin": {

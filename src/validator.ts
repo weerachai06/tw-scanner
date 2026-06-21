@@ -57,10 +57,15 @@ function selectorInOutput(selector: string, output: string): boolean {
   return next === '{' || next === ' ' || next === ':' || next === '[' || next === ','
 }
 
+// Marker classes that are valid but generate no CSS of their own
+const MARKER_CLASS_RE = /^(group|peer)(\/\S+)?$/
+
 // ─── Validation cache: per-context ───────────────────────────────────────────
 const validityCache = new Map<TailwindCompileResult, Map<string, boolean>>()
 
 export function isValidClass(cls: string, context: TailwindCompileResult): boolean {
+  if (MARKER_CLASS_RE.test(cls)) return true
+
   if (!validityCache.has(context)) validityCache.set(context, new Map())
   const cache = validityCache.get(context)!
 
@@ -85,9 +90,11 @@ export function validateBatch(
   const cache = validityCache.get(context) ?? new Map<string, boolean>()
   if (!validityCache.has(context)) validityCache.set(context, cache)
 
-  // Use cache first
+  // Use cache first; skip marker classes
   for (const cls of classes) {
-    if (cache.has(cls)) {
+    if (MARKER_CLASS_RE.test(cls)) {
+      result.set(cls, true)
+    } else if (cache.has(cls)) {
       result.set(cls, cache.get(cls)!)
     } else {
       toCheck.push(cls)

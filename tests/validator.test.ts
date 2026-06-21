@@ -37,6 +37,13 @@ describe('isValidClass', () => {
     expect(isValidClass('md:hidden', context)).toBe(true)
   })
 
+  it('returns true for marker classes that generate no CSS', () => {
+    expect(isValidClass('group', context)).toBe(true)
+    expect(isValidClass('peer', context)).toBe(true)
+    expect(isValidClass('group/sidebar', context)).toBe(true)
+    expect(isValidClass('peer/input', context)).toBe(true)
+  })
+
   it('returns false for invalid/nonexistent classes', () => {
     expect(isValidClass('bg-nonexistent-500', context)).toBe(false)
     expect(isValidClass('text-fake-color', context)).toBe(false)
