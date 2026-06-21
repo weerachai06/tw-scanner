@@ -27,13 +27,22 @@ export async function loadTailwindContext(cssFile: string): Promise<TailwindComp
     const msg = (err as Error).message ?? ''
     const match = msg.match(/Cannot apply unknown utility class [`']?([^\s`']+)[`']?/)
     if (match) {
-      throw new Error(
-        `Tailwind could not compile "${path.relative(process.cwd(), abs)}" — ` +
-        `unknown utility used in @apply: "${match[1]}".\n` +
-        `  Fix: add "@utility ${match[1]} {}" to your CSS entry file to register it as a custom utility.`
+      // Strip all @apply lines from the entry CSS and retry so scanning can continue.
+      // Unknown utilities are likely defined via PostCSS plugins or external font systems
+      // that @tailwindcss/node's compile() doesn't have access to.
+      const strippedCss = css.replace(/^\s*@apply\b[^;]+;/gm, '')
+      console.warn(
+        `⚠  Skipping @apply in "${path.relative(process.cwd(), abs)}" — ` +
+        `unknown utility: "${match[1]}". ` +
+        `Add "@utility ${match[1]} {}" to register it if you want it validated.`
       )
+      result = await compile(strippedCss, {
+        base: path.dirname(abs),
+        onDependency: () => {},
+      })
+    } else {
+      throw err
     }
-    throw err
   }
 
   compileCache.set(abs, result)
