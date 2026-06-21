@@ -51,26 +51,9 @@ export async function loadTailwindContext(cssFile: string): Promise<TailwindComp
 
 // ─── Build CSS selector for string matching ──────────────────────────────────
 function cssSelector(cls: string): string {
-  // Produces the escaped selector as it appears in Tailwind's CSS output
-  return '.' + cls
-    .replace(/\//g, '\\/')
-    .replace(/\./g, '\\.')
-    .replace(/:/g, '\\:')
-    .replace(/\[/g, '\\[')
-    .replace(/\]/g, '\\]')
-    .replace(/\(/g, '\\(')
-    .replace(/\)/g, '\\)')
-    .replace(/=/g, '\\=')
-    .replace(/>/g, '\\>')
-    .replace(/&/g, '\\&')
-    .replace(/~/g, '\\~')
-    .replace(/\+/g, '\\+')
-    .replace(/#/g, '\\#')
-    .replace(/%/g, '\\%')
-    .replace(/!/g, '\\!')
-    .replace(/,/g, '\\,')
-    .replace(/'/g, "\\'")
-    .replace(/"/g, '\\"')
+  // Produces the escaped selector as it appears in Tailwind's CSS output.
+  // Single-pass replacement avoids any interaction between sequential replacements.
+  return '.' + cls.replace(/[/.:[\]()=>&~+#%!,'"]/g, '\\$&')
 }
 
 function selectorInOutput(selector: string, output: string): boolean {
