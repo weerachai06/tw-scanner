@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'bun:test'
 import path from 'path'
-import { extractClassesFromFile } from '../src/extractor.js'
+import { extractClassesFromFile, extractClassesFromCss } from '../src/extractor.js'
 
 const fixture = path.resolve(import.meta.dir, 'fixtures/sample.tsx')
+const cssFixture = path.resolve(import.meta.dir, 'fixtures/styles.css')
 
 describe('extractClassesFromFile', () => {
   it('extracts classes from className prop', () => {
@@ -64,5 +65,72 @@ describe('extractClassesFromFile', () => {
   it('returns empty array for a file that does not exist', () => {
     const classes = extractClassesFromFile('/nonexistent/file.tsx')
     expect(classes).toEqual([])
+  })
+})
+
+describe('extractClassesFromCss', () => {
+  it('extracts classes from @apply rules', () => {
+    const classes = extractClassesFromCss(cssFixture)
+    const values = classes.map((c) => c.value)
+
+    expect(values).toContain('bg-blue-500')
+    expect(values).toContain('text-white')
+    expect(values).toContain('px-4')
+    expect(values).toContain('py-2')
+    expect(values).toContain('rounded')
+  })
+
+  it('extracts classes from multiple @apply rules in the same block', () => {
+    const classes = extractClassesFromCss(cssFixture)
+    const values = classes.map((c) => c.value)
+
+    expect(values).toContain('w-full')
+    expect(values).toContain('max-w-screen-lg')
+    expect(values).toContain('mx-auto')
+    expect(values).toContain('px-4')
+    expect(values).toContain('md:px-8')
+  })
+
+  it('extracts classes with responsive and state variants', () => {
+    const classes = extractClassesFromCss(cssFixture)
+    const values = classes.map((c) => c.value)
+
+    expect(values).toContain('md:text-4xl')
+    expect(values).toContain('hover:underline')
+  })
+
+  it('also extracts invalid classes (validation is separate)', () => {
+    const classes = extractClassesFromCss(cssFixture)
+    const values = classes.map((c) => c.value)
+
+    expect(values).toContain('bg-fake-999')
+    expect(values).toContain('text-nonexistent')
+  })
+
+  it('marks all extracted CSS classes as non-dynamic', () => {
+    const classes = extractClassesFromCss(cssFixture)
+    expect(classes.every((c) => c.isDynamic === false)).toBe(true)
+  })
+
+  it('attaches correct file, line, and col to every class', () => {
+    const classes = extractClassesFromCss(cssFixture)
+
+    for (const cls of classes) {
+      expect(cls.file).toBe(cssFixture)
+      expect(cls.line).toBeGreaterThan(0)
+      expect(cls.col).toBeGreaterThanOrEqual(0)
+    }
+  })
+
+  it('sets context to the @apply line', () => {
+    const classes = extractClassesFromCss(cssFixture)
+    const btnClass = classes.find((c) => c.value === 'bg-blue-500')
+
+    expect(btnClass?.context).toContain('@apply')
+    expect(btnClass?.context).toContain('bg-blue-500')
+  })
+
+  it('returns empty array for a file that does not exist', () => {
+    expect(extractClassesFromCss('/nonexistent/styles.css')).toEqual([])
   })
 })
