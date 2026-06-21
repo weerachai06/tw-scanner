@@ -4,6 +4,32 @@ import { compile } from '@tailwindcss/node'
 
 type TailwindCompileResult = Awaited<ReturnType<typeof compile>>
 
+// ─── Compile with fallback for unknown @apply utilities ──────────────────────
+// Tailwind v4 throws when @apply references a utility it doesn't know about.
+// This can happen with custom utilities defined via PostCSS plugins or external
+// font/design systems. We recover by injecting empty @utility stubs and retrying.
+async function compileWithFallback(
+  css: string,
+  base: string,
+  stubs: string[] = [],
+): Promise<TailwindCompileResult> {
+  const injected = stubs.map((u) => `@utility ${u} { --tw-stub: 0; }`).join('\n')
+  const input = injected ? injected + '\n' + css : css
+
+  try {
+    return await compile(input, { base, onDependency: () => {} })
+  } catch (err) {
+    const msg = (err as Error).message ?? ''
+    const match = msg.match(/Cannot apply unknown utility class [`']?([^\s`']+)[`']?/)
+    if (match && stubs.length < 50) {
+      const unknown = match[1]
+      console.warn(`⚠  Unknown utility in @apply: "${unknown}" — stub injected for scanning. Add "@utility ${unknown} {}" to your CSS to silence this.`)
+      return compileWithFallback(css, base, [...stubs, unknown])
+    }
+    throw err
+  }
+}
+
 // ─── Cache: compile result per CSS file ──────────────────────────────────────
 const compileCache = new Map<string, TailwindCompileResult>()
 
@@ -17,33 +43,7 @@ export async function loadTailwindContext(cssFile: string): Promise<TailwindComp
 
   const css = fs.readFileSync(abs, 'utf8')
 
-  let result: TailwindCompileResult
-  try {
-    result = await compile(css, {
-      base: path.dirname(abs),
-      onDependency: () => {},
-    })
-  } catch (err) {
-    const msg = (err as Error).message ?? ''
-    const match = msg.match(/Cannot apply unknown utility class [`']?([^\s`']+)[`']?/)
-    if (match) {
-      // Strip all @apply lines from the entry CSS and retry so scanning can continue.
-      // Unknown utilities are likely defined via PostCSS plugins or external font systems
-      // that @tailwindcss/node's compile() doesn't have access to.
-      const strippedCss = css.replace(/^\s*@apply\b[^;]+;/gm, '')
-      console.warn(
-        `⚠  Skipping @apply in "${path.relative(process.cwd(), abs)}" — ` +
-        `unknown utility: "${match[1]}". ` +
-        `Add "@utility ${match[1]} {}" to register it if you want it validated.`
-      )
-      result = await compile(strippedCss, {
-        base: path.dirname(abs),
-        onDependency: () => {},
-      })
-    } else {
-      throw err
-    }
-  }
+  const result = await compileWithFallback(css, path.dirname(abs))
 
   compileCache.set(abs, result)
   return result
