@@ -2,6 +2,7 @@
   "name": "@weerachai06/tw-scanner",
   "version": "1.1.4",
   "description": "AST-based Tailwind v4 class validator for React projects",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "tw-scanner": "./dist/cli.js"
