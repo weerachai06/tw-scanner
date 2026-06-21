@@ -3,7 +3,7 @@ import { cva } from 'cva'
 
 // className prop
 export function Button() {
-  return <button className="flex items-center bg-blue-500 text-white px-4 py-2">Click</button>
+  return <button className="flex items-center bg-blue-500 text-white px-4 py-2 bg-brand-primary">Click</button>
 }
 
 // clsx call
