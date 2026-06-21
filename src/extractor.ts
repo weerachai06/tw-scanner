@@ -275,16 +275,15 @@ function walk(
 export function extractClassesFromFile(file: string): ExtractedClass[] {
   if (!fs.existsSync(file)) return []
   const source = fs.readFileSync(file, 'utf8')
-  const isTS = /\.(ts|tsx)$/.test(file)
+  const isJSX = /\.(tsx|jsx)$/.test(file)
 
   let ast: TSESTree.Program
   try {
     ast = parse(source, {
-      jsx: true,
+      jsx: isJSX,
       loc: true,
       range: true,
       tolerant: true,
-      ...(isTS ? {} : {}),
     })
   } catch (err) {
     console.warn(`⚠  Parse error in ${file}: ${(err as Error).message}`)

@@ -26,13 +26,13 @@ export async function loadTailwindContext(cssFile: string): Promise<TailwindComp
   return result
 }
 
-// ─── Build escape for CSS selector matching ───────────────────────────────────
-function cssEscape(cls: string): string {
-  // Matches what Tailwind outputs in CSS selectors
-  return cls
-    .replace(/\//g, '\\/')     // p-1/2 → p-1\/2
-    .replace(/\./g, '\\.')     // . → \.
-    .replace(/:/g, '\\:')      // md: → md\:
+// ─── Build CSS selector for string matching ──────────────────────────────────
+function cssSelector(cls: string): string {
+  // Produces the escaped selector as it appears in Tailwind's CSS output
+  return '.' + cls
+    .replace(/\//g, '\\/')
+    .replace(/\./g, '\\.')
+    .replace(/:/g, '\\:')
     .replace(/\[/g, '\\[')
     .replace(/\]/g, '\\]')
     .replace(/\(/g, '\\(')
@@ -40,6 +40,13 @@ function cssEscape(cls: string): string {
     .replace(/#/g, '\\#')
     .replace(/%/g, '\\%')
     .replace(/!/g, '\\!')
+}
+
+function selectorInOutput(selector: string, output: string): boolean {
+  const idx = output.indexOf(selector)
+  if (idx === -1) return false
+  const next = output[idx + selector.length]
+  return next === '{' || next === ' ' || next === ':' || next === '[' || next === ','
 }
 
 // ─── Validation cache: per-context ───────────────────────────────────────────
@@ -54,11 +61,7 @@ export function isValidClass(cls: string, context: TailwindCompileResult): boole
   // Build CSS with this single candidate
   const output = context.build([cls])
 
-  // A valid class generates a selector in the utilities/components layer
-  const escaped = cssEscape(cls)
-  // Look for .classname{ or .classname  { or .classname:hover{
-  const pattern = new RegExp(`\\.${escaped.replace(/\\/g, '\\\\')}[\\s{\\[:]`)
-  const valid = pattern.test(output)
+  const valid = selectorInOutput(cssSelector(cls), output)
 
   cache.set(cls, valid)
   return valid
@@ -89,9 +92,7 @@ export function validateBatch(
   const output = context.build(toCheck)
 
   for (const cls of toCheck) {
-    const escaped = cssEscape(cls)
-    const pattern = new RegExp(`\\.${escaped.replace(/\\/g, '\\\\')}[\\s{\\[:]`)
-    const valid = pattern.test(output)
+    const valid = selectorInOutput(cssSelector(cls), output)
     result.set(cls, valid)
     cache.set(cls, valid)
   }
