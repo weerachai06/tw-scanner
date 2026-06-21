@@ -1,6 +1,6 @@
 import { globSync } from 'glob'
 import * as path from 'path'
-import { extractClassesFromFile } from './extractor.js'
+import { extractClassesFromFile, extractClassesFromCss } from './extractor.js'
 import { loadTailwindContext, validateBatch } from './validator.js'
 import { ScanResult, ExtractedClass, ValidationResult } from './types.js'
 
@@ -15,7 +15,7 @@ export interface ScanOptions {
   exclude?: string[]
 }
 
-const DEFAULT_INCLUDE = ['**/*.{ts,tsx,js,jsx}']
+const DEFAULT_INCLUDE = ['**/*.{ts,tsx,js,jsx,css}']
 const DEFAULT_EXCLUDE = [
   '**/node_modules/**',
   '**/dist/**',
@@ -52,7 +52,9 @@ export async function scan(opts: ScanOptions): Promise<ScanResult> {
   // ── 3. Extract classes from all files ─────────────────────────────────────
   const allExtracted: ExtractedClass[] = []
   for (const file of files) {
-    const extracted = extractClassesFromFile(file)
+    const extracted = file.endsWith('.css')
+      ? extractClassesFromCss(file)
+      : extractClassesFromFile(file)
     allExtracted.push(...extracted)
   }
 

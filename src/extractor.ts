@@ -270,6 +270,36 @@ function walk(
   }
 }
 
+// ─── CSS @apply extractor ─────────────────────────────────────────────────────
+
+export function extractClassesFromCss(file: string): ExtractedClass[] {
+  if (!fs.existsSync(file)) return []
+  const source = fs.readFileSync(file, 'utf8')
+  const results: ExtractedClass[] = []
+
+  const lines = source.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const match = line.match(/^\s*@apply\s+(.+?)\s*;/)
+    if (!match) continue
+
+    const classStr = match[1]
+    const col = line.indexOf('@apply')
+    classStr.split(/\s+/).filter(Boolean).forEach((cls) => {
+      results.push({
+        value: cls,
+        file,
+        line: i + 1,
+        col,
+        isDynamic: false,
+        context: line.trim(),
+      })
+    })
+  }
+
+  return results
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export function extractClassesFromFile(file: string): ExtractedClass[] {
