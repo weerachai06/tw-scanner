@@ -47,7 +47,10 @@ npx @weerachai06/tw-scanner --src ./src --css ./src/globals.css --json | jq '.in
 |---|---|---|
 | ❌ Invalid class | `bg-old-token-500` | **Error** — invalid after migration |
 | ❌ Invalid in cva variants | `danger: 'bg-red-danger'` | **Error** — detected via AST |
+| ❌ Invalid `@apply` class | `@apply bg-fake-999;` in `.css` | **Error** — validated against your config |
+| ❌ Missing CSS Module class | `styles.nonExistent` | **Error** — class not defined in `.module.css` |
 | ⚠️ Dynamic expression | `` `text-${color}` `` | **Warning** — cannot validate statically |
+| ⚠️ Dynamic module access | `styles[variable]` | **Warning** — skipped, cannot resolve statically |
 
 ## How it works
 
@@ -60,13 +63,36 @@ Uses `@typescript-eslint/typescript-estree` to parse `.ts/.tsx/.js/.jsx` and tra
 - `ConditionalExpression` and `LogicalExpression` inside class utilities
 - `TemplateLiteral` — static parts extracted, dynamic parts flagged as warnings
 
-### 2. Tailwind v4 Validation
+### 2. CSS file scanning
+
+`.css` and `.module.css` files are also scanned. Classes inside `@apply` directives are extracted and validated against your Tailwind config.
+
+```css
+.btn {
+  @apply bg-blue-500 text-white px-4; /* ✓ valid */
+  @apply bg-fake-999;                 /* ✗ error */
+}
+```
+
+### 3. CSS Modules validation
+
+When a JS/TS file imports a `.module.css` file, all `styles.xxx` and `styles['xxx']` usages are checked against the class names actually defined in that file.
+
+```tsx
+import styles from './button.module.css'
+
+<button className={styles.btn}>...</button>          // ✓ defined
+<button className={styles.nonExistent}>...</button>  // ✗ error
+<button className={styles[variant]}>...</button>     // ⚠ skipped (dynamic)
+```
+
+### 4. Tailwind v4 Validation
 
 Uses `@tailwindcss/node`'s `compile()` API to load your actual CSS entry file (including all `@theme` tokens and plugins), then calls `build([candidate])` for each class. If the class generates no CSS rule in the output, it's invalid.
 
 Validation is **100% accurate against your real config** — custom tokens, plugins, and all.
 
-### 3. Batch validation
+### 5. Batch validation
 
 All unique class values are validated in a single `build()` call per batch for performance.
 
