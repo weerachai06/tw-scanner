@@ -53,8 +53,7 @@ async function main() {
       writeJsonReport(result, path.resolve(outputArg))
     }
 
-    // Exit with error code if invalid classes found
-    process.exit(result.invalid.length > 0 ? 1 : 0)
+    process.exit(result.invalid.length > 0 || result.cssModuleViolations.length > 0 ? 1 : 0)
   } catch (err) {
     console.error('Fatal error:', (err as Error).message)
     process.exit(2)

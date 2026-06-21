@@ -1,8 +1,8 @@
 import { globSync } from 'glob'
 import * as path from 'path'
-import { extractClassesFromFile, extractClassesFromCss } from './extractor.js'
+import { extractClassesFromFile, extractClassesFromCss, extractCssModuleUsages, extractDefinedCssModuleClasses } from './extractor.js'
 import { loadTailwindContext, validateBatch } from './validator.js'
-import { ScanResult, ExtractedClass, ValidationResult } from './types.js'
+import { ScanResult, ExtractedClass, ValidationResult, CssModuleViolation } from './types.js'
 
 export interface ScanOptions {
   /** Root directory to scan */
@@ -76,9 +76,37 @@ export async function scan(opts: ScanOptions): Promise<ScanResult> {
     }
   }
 
+  // ── 7. CSS Module cross-reference ────────────────────────────────────────────
+  const cssModuleViolations: CssModuleViolation[] = []
+  const jsFiles = files.filter((f) => !f.endsWith('.css'))
+
+  // Collect all usages across JS/TS files
+  const allUsages = jsFiles.flatMap((f) => extractCssModuleUsages(f))
+  const staticUsages = allUsages.filter((u) => !u.isDynamic)
+
+  // Load defined classes per unique module path (cached)
+  const moduleClassesCache = new Map<string, Set<string>>()
+  for (const usage of staticUsages) {
+    if (!moduleClassesCache.has(usage.modulePath)) {
+      moduleClassesCache.set(usage.modulePath, extractDefinedCssModuleClasses(usage.modulePath))
+    }
+    const defined = moduleClassesCache.get(usage.modulePath)!
+    if (!defined.has(usage.className)) {
+      cssModuleViolations.push({
+        file: usage.file,
+        line: usage.line,
+        col: usage.col,
+        className: usage.className,
+        modulePath: usage.modulePath,
+        context: usage.context,
+      })
+    }
+  }
+
   return {
     invalid,
     dynamic: dynamicClasses,
+    cssModuleViolations,
     totalClasses: allExtracted.length,
     totalFiles: files.length,
     durationMs: Date.now() - start,

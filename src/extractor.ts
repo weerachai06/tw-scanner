@@ -1,6 +1,7 @@
 import { parse, TSESTree } from '@typescript-eslint/typescript-estree'
 import * as fs from 'fs'
-import { ExtractedClass } from './types.js'
+import * as path from 'path'
+import { ExtractedClass, CssModuleUsage } from './types.js'
 
 // ─── Class utility function names to detect ──────────────────────────────────
 const CLASS_UTIL_NAMES = new Set(['clsx', 'cn', 'cx', 'classnames', 'cva', 'tv'])
@@ -268,6 +269,101 @@ function walk(
       walk(child as TSESTree.Node, file, source, results, visited)
     }
   }
+}
+
+// ─── CSS Modules extractor ───────────────────────────────────────────────────
+
+export function extractCssModuleUsages(file: string): CssModuleUsage[] {
+  if (!fs.existsSync(file)) return []
+  const source = fs.readFileSync(file, 'utf8')
+  const isJSX = /\.(tsx|jsx)$/.test(file)
+
+  let ast: TSESTree.Program
+  try {
+    ast = parse(source, { jsx: isJSX, loc: true, range: true, tolerant: true })
+  } catch {
+    return []
+  }
+
+  // Pass 1: collect `import styles from './foo.module.css'` → binding → resolved path
+  const imports = new Map<string, string>()
+  for (const node of ast.body) {
+    if (
+      node.type === 'ImportDeclaration' &&
+      typeof node.source.value === 'string' &&
+      node.source.value.endsWith('.module.css')
+    ) {
+      const resolvedPath = path.resolve(path.dirname(file), node.source.value)
+      for (const specifier of node.specifiers) {
+        if (specifier.type === 'ImportDefaultSpecifier') {
+          imports.set(specifier.local.name, resolvedPath)
+        }
+      }
+    }
+  }
+
+  if (imports.size === 0) return []
+
+  // Pass 2: collect `styles.btn` / `styles['btn']` / `styles[expr]` usages
+  const results: CssModuleUsage[] = []
+
+  function walkForUsages(node: TSESTree.Node) {
+    if (!node) return
+
+    if (node.type === 'MemberExpression') {
+      const obj = node.object
+      if (obj.type === 'Identifier' && imports.has(obj.name)) {
+        const modulePath = imports.get(obj.name)!
+        const prop = node.property
+        const snippet = source.slice(
+          Math.max(0, (node.range?.[0] ?? 0) - 20),
+          Math.min(source.length, (node.range?.[1] ?? 0) + 20),
+        ).replace(/\n/g, ' ').trim()
+
+        if (!node.computed && prop.type === 'Identifier') {
+          results.push({ file, line: node.loc!.start.line, col: node.loc!.start.column, className: prop.name, modulePath, context: snippet, isDynamic: false })
+        } else if (node.computed && prop.type === 'Literal' && typeof prop.value === 'string') {
+          results.push({ file, line: node.loc!.start.line, col: node.loc!.start.column, className: prop.value, modulePath, context: snippet, isDynamic: false })
+        } else if (node.computed) {
+          results.push({ file, line: node.loc!.start.line, col: node.loc!.start.column, className: source.slice(node.range?.[0] ?? 0, node.range?.[1] ?? 0), modulePath, context: snippet, isDynamic: true })
+        }
+      }
+    }
+
+    for (const key of Object.keys(node)) {
+      if (key === 'parent' || key === 'tokens' || key === 'comments') continue
+      const child = (node as TSESTree.Node & Record<string, unknown>)[key]
+      if (Array.isArray(child)) {
+        for (const c of child) {
+          if (c && typeof c === 'object' && 'type' in c) walkForUsages(c as TSESTree.Node)
+        }
+      } else if (child && typeof child === 'object' && 'type' in child) {
+        walkForUsages(child as TSESTree.Node)
+      }
+    }
+  }
+
+  walkForUsages(ast)
+  return results
+}
+
+export function extractDefinedCssModuleClasses(cssFile: string): Set<string> {
+  if (!fs.existsSync(cssFile)) return new Set()
+  const source = fs.readFileSync(cssFile, 'utf8')
+  const classes = new Set<string>()
+
+  const lines = source.split('\n')
+  for (const line of lines) {
+    // Skip @apply lines — those dots are Tailwind classes, not module class names
+    if (line.trimStart().startsWith('@apply')) continue
+    const regex = /\.([a-zA-Z_][a-zA-Z0-9_-]*)\b/g
+    let m: RegExpExecArray | null
+    while ((m = regex.exec(line)) !== null) {
+      classes.add(m[1])
+    }
+  }
+
+  return classes
 }
 
 // ─── CSS @apply extractor ─────────────────────────────────────────────────────

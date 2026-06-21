@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'bun:test'
 import path from 'path'
-import { extractClassesFromFile, extractClassesFromCss } from '../src/extractor.js'
+import { extractClassesFromFile, extractClassesFromCss, extractCssModuleUsages, extractDefinedCssModuleClasses } from '../src/extractor.js'
 
 const fixture = path.resolve(import.meta.dir, 'fixtures/sample.tsx')
 const cssFixture = path.resolve(import.meta.dir, 'fixtures/styles.css')
+const moduleFixture = path.resolve(import.meta.dir, 'fixtures/Button.tsx')
+const moduleCssFixture = path.resolve(import.meta.dir, 'fixtures/button.module.css')
 
 describe('extractClassesFromFile', () => {
   it('extracts classes from className prop', () => {
@@ -132,5 +134,77 @@ describe('extractClassesFromCss', () => {
 
   it('returns empty array for a file that does not exist', () => {
     expect(extractClassesFromCss('/nonexistent/styles.css')).toEqual([])
+  })
+})
+
+describe('extractDefinedCssModuleClasses', () => {
+  it('extracts class names defined in the CSS module', () => {
+    const classes = extractDefinedCssModuleClasses(moduleCssFixture)
+
+    expect(classes.has('btn')).toBe(true)
+    expect(classes.has('btnPrimary')).toBe(true)
+    expect(classes.has('btnDisabled')).toBe(true)
+  })
+
+  it('does not include Tailwind classes from @apply lines', () => {
+    const classes = extractDefinedCssModuleClasses(moduleCssFixture)
+
+    expect(classes.has('bg-blue-500')).toBe(false)
+    expect(classes.has('text-white')).toBe(false)
+    expect(classes.has('px-4')).toBe(false)
+  })
+
+  it('returns empty set for a file that does not exist', () => {
+    expect(extractDefinedCssModuleClasses('/nonexistent/foo.module.css').size).toBe(0)
+  })
+})
+
+describe('extractCssModuleUsages', () => {
+  it('extracts static property access (styles.btn)', () => {
+    const usages = extractCssModuleUsages(moduleFixture)
+    const names = usages.map((u) => u.className)
+
+    expect(names).toContain('btn')
+  })
+
+  it('extracts bracket notation with string literal (styles["btnPrimary"])', () => {
+    const usages = extractCssModuleUsages(moduleFixture)
+    const names = usages.map((u) => u.className)
+
+    expect(names).toContain('btnPrimary')
+  })
+
+  it('flags dynamic access (styles[variable]) as isDynamic', () => {
+    const usages = extractCssModuleUsages(moduleFixture)
+    const dynamic = usages.filter((u) => u.isDynamic)
+
+    expect(dynamic.length).toBeGreaterThan(0)
+  })
+
+  it('resolves modulePath to an absolute path', () => {
+    const usages = extractCssModuleUsages(moduleFixture)
+
+    for (const u of usages) {
+      expect(path.isAbsolute(u.modulePath)).toBe(true)
+      expect(u.modulePath).toContain('button.module.css')
+    }
+  })
+
+  it('attaches file, line, col to every usage', () => {
+    const usages = extractCssModuleUsages(moduleFixture)
+
+    for (const u of usages) {
+      expect(u.file).toBe(moduleFixture)
+      expect(u.line).toBeGreaterThan(0)
+      expect(u.col).toBeGreaterThanOrEqual(0)
+    }
+  })
+
+  it('returns empty array for a file with no CSS module imports', () => {
+    expect(extractCssModuleUsages(fixture)).toEqual([])
+  })
+
+  it('returns empty array for a file that does not exist', () => {
+    expect(extractCssModuleUsages('/nonexistent/file.tsx')).toEqual([])
   })
 })

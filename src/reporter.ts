@@ -1,7 +1,7 @@
 import pc from 'picocolors'
 import * as fs from 'fs'
 import * as path from 'path'
-import { ScanResult, ValidationResult, ExtractedClass } from './types.js'
+import { ScanResult, ValidationResult, ExtractedClass, CssModuleViolation } from './types.js'
 
 function relativePath(file: string, cwd = process.cwd()) {
   return path.relative(cwd, file)
@@ -28,7 +28,7 @@ export function printReport(result: ScanResult, opts: { json?: boolean; verbose?
     return
   }
 
-  const { invalid, dynamic, totalClasses, totalFiles, durationMs } = result
+  const { invalid, dynamic, cssModuleViolations, totalClasses, totalFiles, durationMs } = result
 
   console.log('')
   console.log(pc.bold('─── Tailwind v4 Class Scanner ───────────────────────────────'))
@@ -81,13 +81,35 @@ export function printReport(result: ScanResult, opts: { json?: boolean; verbose?
     }
   }
 
+  // ── CSS Module violations ──
+  if (cssModuleViolations.length > 0) {
+    console.log(pc.red(pc.bold(`  ✗ ${pluralize(cssModuleViolations.length, 'CSS Module class')} not found`)))
+    console.log('')
+
+    const byFile = groupByFile(cssModuleViolations)
+    for (const [file, items] of byFile) {
+      console.log(`  ${pc.underline(relativePath(file))}`)
+      for (const item of items) {
+        const loc = pc.dim(`${item.line}:${item.col}`)
+        const cls = pc.red(pc.bold(item.className))
+        const mod = pc.dim(`(${relativePath(item.modulePath)})`)
+        console.log(`    ${loc}  ${cls}  ${mod}`)
+        if (opts.verbose) {
+          console.log(`         ${pc.dim(`…${item.context}…`)}`)
+        }
+      }
+      console.log('')
+    }
+  }
+
   // ── Summary ──
   console.log('─────────────────────────────────────────────────────────────')
-  const status =
-    invalid.length === 0 ? pc.green('PASS') : pc.red('FAIL')
+  const hasErrors = invalid.length > 0 || cssModuleViolations.length > 0
+  const status = hasErrors ? pc.red('FAIL') : pc.green('PASS')
   console.log(
     `  Status: ${status}  ·  ` +
     `${pc.red(String(invalid.length))} invalid  ·  ` +
+    `${pc.red(String(cssModuleViolations.length))} CSS module  ·  ` +
     `${pc.yellow(String(dynamicOnly.length))} dynamic warnings`
   )
   console.log('')
