@@ -53,7 +53,7 @@ export async function loadTailwindContext(cssFile: string): Promise<TailwindComp
 function cssSelector(cls: string): string {
   // Produces the escaped selector as it appears in Tailwind's CSS output.
   // Single-pass replacement avoids any interaction between sequential replacements.
-  return '.' + cls.replace(/[/.:[\]()=>&~+#%!,'"]/g, '\\$&')
+  return '.' + cls.replace(/[\\/.:[\]()=>&~+#%!,'"]/g, '\\$&')
 }
 
 function selectorInOutput(selector: string, output: string): boolean {
