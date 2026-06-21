@@ -3,18 +3,19 @@
 AST-based Tailwind v4 class validator for React projects.
 Detects invalid, renamed, or missing classes after design token / plugin migrations.
 
-## Setup
-
-```bash
-npm install
-```
-
-Dependencies: `@tailwindcss/node`, `@typescript-eslint/typescript-estree`, `glob`, `picocolors`, `tsx`
-
 ## Usage
 
+Run directly without installing:
+
 ```bash
-npx tsx src/cli.ts --src ./src --css ./src/globals.css
+npx @weerachai06/tw-scanner --src ./src --css ./src/globals.css
+```
+
+Or install globally:
+
+```bash
+npm install -g @weerachai06/tw-scanner
+tw-scanner --src ./src --css ./src/globals.css
 ```
 
 ### Options
@@ -31,13 +32,13 @@ npx tsx src/cli.ts --src ./src --css ./src/globals.css
 
 ```bash
 # Basic scan
-npx tsx src/cli.ts --src ./src --css ./src/globals.css
+npx @weerachai06/tw-scanner --src ./src --css ./src/globals.css
 
 # With verbose context + save report
-npx tsx src/cli.ts --src ./src --css ./src/globals.css --verbose --output report.json
+npx @weerachai06/tw-scanner --src ./src --css ./src/globals.css --verbose --output report.json
 
 # CI mode (exits with code 1 if invalid classes found)
-npx tsx src/cli.ts --src ./src --css ./src/globals.css --json | jq '.invalid | length'
+npx @weerachai06/tw-scanner --src ./src --css ./src/globals.css --json | jq '.invalid | length'
 ```
 
 ## What it detects
@@ -50,7 +51,8 @@ npx tsx src/cli.ts --src ./src --css ./src/globals.css --json | jq '.invalid | l
 
 ## How it works
 
-### 1. AST Extraction (`extractor.ts`)
+### 1. AST Extraction
+
 Uses `@typescript-eslint/typescript-estree` to parse `.ts/.tsx/.js/.jsx` and traverse:
 - `className="..."` JSX props
 - `clsx(...)`, `cn(...)`, `cva(...)` call arguments
@@ -58,19 +60,29 @@ Uses `@typescript-eslint/typescript-estree` to parse `.ts/.tsx/.js/.jsx` and tra
 - `ConditionalExpression` and `LogicalExpression` inside class utilities
 - `TemplateLiteral` — static parts extracted, dynamic parts flagged as warnings
 
-### 2. Tailwind v4 Validation (`validator.ts`)
-Uses `@tailwindcss/node`'s `compile()` API to load your actual `tailwind.config.css` (including all `@theme` tokens and plugins), then calls `build([candidate])` for each class. If the class generates no CSS rule in the output, it's invalid.
+### 2. Tailwind v4 Validation
 
-This means validation is **100% accurate against your real config** — custom tokens, plugins, and all.
+Uses `@tailwindcss/node`'s `compile()` API to load your actual CSS entry file (including all `@theme` tokens and plugins), then calls `build([candidate])` for each class. If the class generates no CSS rule in the output, it's invalid.
+
+Validation is **100% accurate against your real config** — custom tokens, plugins, and all.
 
 ### 3. Batch validation
+
 All unique class values are validated in a single `build()` call per batch for performance.
 
 ## Extending
 
-To add support for more class utilities (e.g. `tv` from `tailwind-variants`), add the function name to `CLASS_UTIL_NAMES` in `extractor.ts`:
+To add support for more class utilities (e.g. `tv` from `tailwind-variants`), add the function name to `CLASS_UTIL_NAMES` in `src/extractor.ts`:
 
 ```ts
 const CLASS_UTIL_NAMES = new Set(['clsx', 'cn', 'cx', 'classnames', 'cva', 'tv'])
 ```
-# tw-scanner
+
+## Development
+
+```bash
+bun install        # install dependencies
+bun run build      # compile TypeScript → dist/
+bun test           # run tests
+bun run scan -- --src ./src --css ./src/globals.css  # run locally without building
+```

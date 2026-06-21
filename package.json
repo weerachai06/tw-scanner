@@ -4,9 +4,13 @@
   "description": "AST-based Tailwind v4 class validator for React projects",
   "type": "module",
   "bin": {
-    "tw-scanner": "./src/cli.ts"
+    "tw-scanner": "./dist/cli.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "build": "tsc",
     "scan": "bun src/cli.ts",
     "test": "bun test"
   },
