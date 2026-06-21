@@ -42,6 +42,36 @@ describe('isValidClass', () => {
     expect(isValidClass('text-fake-color', context)).toBe(false)
     expect(isValidClass('not-a-class', context)).toBe(false)
   })
+
+  describe('@theme custom tokens', () => {
+    it('recognises custom color tokens', () => {
+      expect(isValidClass('bg-brand-primary', context)).toBe(true)
+      expect(isValidClass('bg-brand-secondary', context)).toBe(true)
+      expect(isValidClass('text-brand-primary', context)).toBe(true)
+      expect(isValidClass('bg-surface-muted', context)).toBe(true)
+    })
+
+    it('recognises custom spacing tokens', () => {
+      expect(isValidClass('p-18', context)).toBe(true)
+      expect(isValidClass('mt-22', context)).toBe(true)
+      expect(isValidClass('w-18', context)).toBe(true)
+    })
+
+    it('recognises custom font-size token', () => {
+      expect(isValidClass('text-display', context)).toBe(true)
+    })
+
+    it('rejects classes that look like custom tokens but are not defined', () => {
+      expect(isValidClass('bg-brand-tertiary', context)).toBe(false)
+      expect(isValidClass('text-headline', context)).toBe(false)
+    })
+
+    it('v4 open spacing scale: arbitrary numbers are always valid', () => {
+      // Tailwind v4 generates calc(var(--spacing) * N) for any integer
+      expect(isValidClass('p-99', context)).toBe(true)
+      expect(isValidClass('mt-100', context)).toBe(true)
+    })
+  })
 })
 
 describe('validateBatch', () => {
