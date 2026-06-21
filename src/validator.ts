@@ -17,10 +17,24 @@ export async function loadTailwindContext(cssFile: string): Promise<TailwindComp
 
   const css = fs.readFileSync(abs, 'utf8')
 
-  const result = await compile(css, {
-    base: path.dirname(abs),
-    onDependency: () => {},
-  })
+  let result: TailwindCompileResult
+  try {
+    result = await compile(css, {
+      base: path.dirname(abs),
+      onDependency: () => {},
+    })
+  } catch (err) {
+    const msg = (err as Error).message ?? ''
+    const match = msg.match(/Cannot apply unknown utility class [`']?([^\s`']+)[`']?/)
+    if (match) {
+      throw new Error(
+        `Tailwind could not compile "${path.relative(process.cwd(), abs)}" — ` +
+        `unknown utility used in @apply: "${match[1]}".\n` +
+        `  Fix: add "@utility ${match[1]} {}" to your CSS entry file to register it as a custom utility.`
+      )
+    }
+    throw err
+  }
 
   compileCache.set(abs, result)
   return result
