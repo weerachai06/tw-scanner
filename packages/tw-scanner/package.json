@@ -1,0 +1,30 @@
+{
+  "name": "@weerachai06/tw-scanner",
+  "version": "1.1.5",
+  "description": "AST-based Tailwind v4 class validator for React projects",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "tw-scanner": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "scan": "bun src/cli.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@tailwindcss/node": "^4.3.1",
+    "@typescript-eslint/typescript-estree": "^8.61.1",
+    "glob": "^11.0.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^5.8.3"
+  }
+}
