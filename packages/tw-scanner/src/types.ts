@@ -10,7 +10,6 @@ export interface ExtractedClass {
 export interface ValidationResult {
   cls: ExtractedClass
   valid: boolean
-  isLikelyUtility: boolean
 }
 
 export interface CssModuleUsage {

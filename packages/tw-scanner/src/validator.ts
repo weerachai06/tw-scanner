@@ -66,12 +66,6 @@ function selectorInOutput(selector: string, output: string): boolean {
 // Marker classes that are valid but generate no CSS of their own
 const MARKER_CLASS_RE = /^(group|peer)(\/\S+)?$/
 
-// Heuristic: does this class look like a Tailwind utility?
-// Matches: variant prefixes (hover:), arbitrary values ([...]), or numeric scales (-4, -500)
-export function looksLikeUtility(cls: string): boolean {
-  return cls.includes(':') || cls.includes('[') || /-\d/.test(cls)
-}
-
 // ─── Validation cache: per-context ───────────────────────────────────────────
 const validityCache = new Map<TailwindCompileResult, Map<string, boolean>>()
 

@@ -1,5 +1,4 @@
 import { parse, TSESTree } from '@typescript-eslint/typescript-estree'
-import * as fs from 'fs'
 import * as path from 'path'
 import { ExtractedClass, CssModuleUsage } from './types.js'
 
@@ -35,16 +34,8 @@ function makeExtracted(
   }))
 }
 
-// Escape regex special chars
-function escapeRegex(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 // ─── Node visitors ────────────────────────────────────────────────────────────
 
-/**
- * Extract classes from a Literal (plain string)
- */
 function visitLiteral(
   node: TSESTree.Literal,
   file: string,
@@ -54,11 +45,6 @@ function visitLiteral(
   return makeExtracted(node.value, node, file, source, false)
 }
 
-/**
- * Extract classes from a TemplateLiteral.
- * Quasis (static parts) are extracted normally.
- * If there are expressions, we flag the whole thing as dynamic.
- */
 function visitTemplateLiteral(
   node: TSESTree.TemplateLiteral,
   file: string,
@@ -68,13 +54,10 @@ function visitTemplateLiteral(
   const hasDynamic = node.expressions.length > 0
 
   if (hasDynamic) {
-    // Extract static quasis individually — they may be valid standalone classes
     for (const quasi of node.quasis) {
       const raw = quasi.value.cooked ?? quasi.value.raw
       const staticParts = raw.split(/\s+/).filter(Boolean)
       for (const part of staticParts) {
-        // Skip parts that look like incomplete prefixes (e.g. "text-", "bg-")
-        // These are the left/right edges of a dynamic expression: `text-${x}`
         if (part && !part.endsWith('-') && !part.endsWith(':')) {
           results.push({
             value: part,
@@ -91,7 +74,6 @@ function visitTemplateLiteral(
       }
     }
 
-    // Also record the whole template as dynamic for the warning report
     const rawTemplate = source.slice(node.range?.[0] ?? 0, node.range?.[1] ?? 0)
     results.push({
       value: rawTemplate,
@@ -102,7 +84,6 @@ function visitTemplateLiteral(
       context: rawTemplate.replace(/\n/g, ' ').trim(),
     })
   } else {
-    // Fully static template — treat like a plain string
     const cooked = node.quasis.map((q) => q.value.cooked ?? q.value.raw).join('')
     results.push(...makeExtracted(cooked, node, file, source, false))
   }
@@ -110,9 +91,6 @@ function visitTemplateLiteral(
   return results
 }
 
-/**
- * Extract classes from an ArrayExpression (clsx(['a', 'b', cond && 'c']))
- */
 function visitExpression(
   node: TSESTree.Expression | TSESTree.SpreadElement,
   file: string,
@@ -141,19 +119,12 @@ function visitExpression(
           const key = prop.key
           const val = prop.value as TSESTree.Expression
 
-          // Pattern 1: { 'bg-red-500': condition } — key is the class name
           if (key.type === 'Literal' && typeof key.value === 'string') {
             results.push(...makeExtracted(key.value, key, file, source, false))
           }
 
-          // Pattern 2: cva({ variants: { size: { sm: 'text-sm', lg: 'text-lg' } } })
-          // Key is an Identifier (e.g. "sm", "danger") and VALUE is the class string
           if (key.type === 'Identifier') {
-            // Skip cva's `defaultVariants` key — values are variant names, not class strings
-            // e.g. defaultVariants: { variant: 'default', size: 'md' }
             if (key.name === 'defaultVariants') continue
-
-            // Recurse into the value — it could be a string, nested object, etc.
             results.push(...visitExpression(val, file, source))
           }
         } else if (prop.type === 'SpreadElement') {
@@ -163,19 +134,16 @@ function visitExpression(
       break
 
     case 'ConditionalExpression':
-      // cond ? 'a' : 'b'
       results.push(...visitExpression(node.consequent, file, source))
       results.push(...visitExpression(node.alternate, file, source))
       break
 
     case 'LogicalExpression':
-      // cond && 'a'  |  cond || 'b'  |  cond ?? 'c'
       results.push(...visitExpression(node.left, file, source))
       results.push(...visitExpression(node.right, file, source))
       break
 
     case 'CallExpression': {
-      // nested clsx / cn / cva calls
       const callee = node.callee
       const name =
         callee.type === 'Identifier'
@@ -211,7 +179,6 @@ function walk(
   if (!node || visited.has(node)) return
   visited.add(node)
 
-  // ── JSX className="..." ──
   if (node.type === 'JSXAttribute') {
     const nameNode = node.name
     const attrName =
@@ -235,7 +202,6 @@ function walk(
     }
   }
 
-  // ── clsx(...) / cn(...) / cva(...) calls ──
   if (node.type === 'CallExpression') {
     const callee = node.callee
     const calleeName =
@@ -250,12 +216,8 @@ function walk(
         results.push(...visitExpression(arg, file, source))
       }
     }
-
-    // cva('base', { variants: { size: { sm: 'text-sm' } } })
-    // Already handled by nested visitExpression calls above
   }
 
-  // ── Recurse into children ──
   for (const key of Object.keys(node)) {
     if (key === 'parent' || key === 'tokens' || key === 'comments') continue
     const child = (node as TSESTree.Node & Record<string, unknown>)[key]
@@ -271,18 +233,75 @@ function walk(
   }
 }
 
-// ─── CSS Modules extractor ───────────────────────────────────────────────────
+// ─── Public API (pure — no file I/O) ─────────────────────────────────────────
 
-export function extractCssModuleUsages(file: string): CssModuleUsage[] {
-  if (!fs.existsSync(file)) return []
-  const source = fs.readFileSync(file, 'utf8')
+/**
+ * Parse Tailwind classes from JS/TS/JSX/TSX source.
+ * Returns classes found, plus an error if the AST parse failed.
+ */
+export function parseClassesFromSource(
+  source: string,
+  file: string,
+  isJSX: boolean,
+): { classes: ExtractedClass[]; error?: Error } {
+  let ast: TSESTree.Program
+  try {
+    ast = parse(source, { jsx: isJSX, loc: true, range: true, tolerant: true })
+  } catch (err) {
+    return { classes: [], error: err as Error }
+  }
+
+  const results: ExtractedClass[] = []
+  walk(ast, file, source, results)
+
+  const seen = new Set<string>()
+  const classes = results.filter((r) => {
+    const key = `${r.value}:${r.line}:${r.col}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+
+  return { classes }
+}
+
+/**
+ * Parse Tailwind classes from CSS @apply directives.
+ */
+export function parseCssApply(source: string, file: string): ExtractedClass[] {
+  const results: ExtractedClass[] = []
+  const lines = source.split('\n')
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const match = line.match(/^\s*@apply\s+(.+?)\s*;/)
+    if (!match) continue
+
+    const classStr = match[1]
+    const col = line.indexOf('@apply')
+    classStr.split(/\s+/).filter(Boolean).forEach((cls) => {
+      results.push({ value: cls, file, line: i + 1, col, isDynamic: false, context: line.trim() })
+    })
+  }
+
+  return results
+}
+
+/**
+ * Parse CSS module usages (styles.foo / styles['foo']) from JS/TS source.
+ * Resolves module paths relative to `file`. Returns an error if AST parse failed.
+ */
+export function parseCssModuleUsages(
+  source: string,
+  file: string,
+): { usages: CssModuleUsage[]; error?: Error } {
   const isJSX = /\.(tsx|jsx)$/.test(file)
 
   let ast: TSESTree.Program
   try {
     ast = parse(source, { jsx: isJSX, loc: true, range: true, tolerant: true })
-  } catch {
-    return []
+  } catch (err) {
+    return { usages: [], error: err as Error }
   }
 
   // Pass 1: collect `import styles from './foo.module.css'` → binding → resolved path
@@ -302,10 +321,10 @@ export function extractCssModuleUsages(file: string): CssModuleUsage[] {
     }
   }
 
-  if (imports.size === 0) return []
+  if (imports.size === 0) return { usages: [] }
 
   // Pass 2: collect `styles.btn` / `styles['btn']` / `styles[expr]` usages
-  const results: CssModuleUsage[] = []
+  const usages: CssModuleUsage[] = []
 
   function walkForUsages(node: TSESTree.Node) {
     if (!node) return
@@ -321,11 +340,11 @@ export function extractCssModuleUsages(file: string): CssModuleUsage[] {
         ).replace(/\n/g, ' ').trim()
 
         if (!node.computed && prop.type === 'Identifier') {
-          results.push({ file, line: node.loc!.start.line, col: node.loc!.start.column, className: prop.name, modulePath, context: snippet, isDynamic: false })
+          usages.push({ file, line: node.loc!.start.line, col: node.loc!.start.column, className: prop.name, modulePath, context: snippet, isDynamic: false })
         } else if (node.computed && prop.type === 'Literal' && typeof prop.value === 'string') {
-          results.push({ file, line: node.loc!.start.line, col: node.loc!.start.column, className: prop.value, modulePath, context: snippet, isDynamic: false })
+          usages.push({ file, line: node.loc!.start.line, col: node.loc!.start.column, className: prop.value, modulePath, context: snippet, isDynamic: false })
         } else if (node.computed) {
-          results.push({ file, line: node.loc!.start.line, col: node.loc!.start.column, className: source.slice(node.range?.[0] ?? 0, node.range?.[1] ?? 0), modulePath, context: snippet, isDynamic: true })
+          usages.push({ file, line: node.loc!.start.line, col: node.loc!.start.column, className: source.slice(node.range?.[0] ?? 0, node.range?.[1] ?? 0), modulePath, context: snippet, isDynamic: true })
         }
       }
     }
@@ -344,17 +363,18 @@ export function extractCssModuleUsages(file: string): CssModuleUsage[] {
   }
 
   walkForUsages(ast)
-  return results
+  return { usages }
 }
 
-export function extractDefinedCssModuleClasses(cssFile: string): Set<string> {
-  if (!fs.existsSync(cssFile)) return new Set()
-  const source = fs.readFileSync(cssFile, 'utf8')
+/**
+ * Parse class names defined in a CSS module file.
+ * Returns all `.className` selectors, excluding @apply lines.
+ */
+export function parseCssModuleClasses(source: string): Set<string> {
   const classes = new Set<string>()
-
   const lines = source.split('\n')
+
   for (const line of lines) {
-    // Skip @apply lines — those dots are Tailwind classes, not module class names
     if (line.trimStart().startsWith('@apply')) continue
     const regex = /\.([a-zA-Z_][a-zA-Z0-9_-]*)\b/g
     let m: RegExpExecArray | null
@@ -364,67 +384,4 @@ export function extractDefinedCssModuleClasses(cssFile: string): Set<string> {
   }
 
   return classes
-}
-
-// ─── CSS @apply extractor ─────────────────────────────────────────────────────
-
-export function extractClassesFromCss(file: string): ExtractedClass[] {
-  if (!fs.existsSync(file)) return []
-  const source = fs.readFileSync(file, 'utf8')
-  const results: ExtractedClass[] = []
-
-  const lines = source.split('\n')
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const match = line.match(/^\s*@apply\s+(.+?)\s*;/)
-    if (!match) continue
-
-    const classStr = match[1]
-    const col = line.indexOf('@apply')
-    classStr.split(/\s+/).filter(Boolean).forEach((cls) => {
-      results.push({
-        value: cls,
-        file,
-        line: i + 1,
-        col,
-        isDynamic: false,
-        context: line.trim(),
-      })
-    })
-  }
-
-  return results
-}
-
-// ─── Public API ───────────────────────────────────────────────────────────────
-
-export function extractClassesFromFile(file: string): ExtractedClass[] {
-  if (!fs.existsSync(file)) return []
-  const source = fs.readFileSync(file, 'utf8')
-  const isJSX = /\.(tsx|jsx)$/.test(file)
-
-  let ast: TSESTree.Program
-  try {
-    ast = parse(source, {
-      jsx: isJSX,
-      loc: true,
-      range: true,
-      tolerant: true,
-    })
-  } catch (err) {
-    console.warn(`⚠  Parse error in ${file}: ${(err as Error).message}`)
-    return []
-  }
-
-  const results: ExtractedClass[] = []
-  walk(ast, file, source, results)
-
-  // Deduplicate by value+line+col
-  const seen = new Set<string>()
-  return results.filter((r) => {
-    const key = `${r.value}:${r.line}:${r.col}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
 }
