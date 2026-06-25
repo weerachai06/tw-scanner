@@ -8,6 +8,7 @@
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "changeset": "changeset",
+    "changeset:gen": "bun scripts/gen-changeset.ts",
     "version": "changeset version",
     "release": "turbo run build && changeset publish"
   },
