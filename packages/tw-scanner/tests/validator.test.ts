@@ -27,6 +27,15 @@ describe('loadTailwindContext', () => {
     expect(loadTailwindContext('/nonexistent/tailwind.css')).rejects.toThrow()
   })
 
+  it('re-throws compile errors that are not about unknown utilities', async () => {
+    // Use a file that hasn't been cached yet (styles.css is never loaded as a Tailwind entry elsewhere)
+    const uncachedFile = path.resolve(import.meta.dir, 'fixtures/styles.css')
+    const badCompile = async () => { throw new Error('Internal processor error: out of memory') }
+    await expect(
+      loadTailwindContext(uncachedFile, badCompile as never)
+    ).rejects.toThrow('Internal processor error')
+  })
+
   describe('compileWithFallback — unknown @apply utilities', () => {
     it('succeeds when CSS uses @apply with unknown utilities', async () => {
       const spy = spyOn(console, 'warn').mockImplementation(() => {})

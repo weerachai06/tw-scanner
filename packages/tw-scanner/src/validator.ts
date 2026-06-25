@@ -3,6 +3,7 @@ import * as path from 'path'
 import { compile } from '@tailwindcss/node'
 
 type TailwindCompileResult = Awaited<ReturnType<typeof compile>>
+type CompileFn = typeof compile
 
 // ─── Compile with fallback for unknown @apply utilities ──────────────────────
 // Tailwind v4 throws when @apply references a utility it doesn't know about.
@@ -11,20 +12,21 @@ type TailwindCompileResult = Awaited<ReturnType<typeof compile>>
 async function compileWithFallback(
   css: string,
   base: string,
+  compileFn: CompileFn,
   stubs: string[] = [],
 ): Promise<TailwindCompileResult> {
   const injected = stubs.map((u) => `@utility ${u} { --tw-stub: 0; }`).join('\n')
   const input = injected ? injected + '\n' + css : css
 
   try {
-    return await compile(input, { base, onDependency: () => {} })
+    return await compileFn(input, { base, onDependency: () => {} })
   } catch (err) {
     const msg = (err as Error).message ?? ''
     const match = msg.match(/Cannot apply unknown utility class [`']?([^\s`']+)[`']?/)
     if (match && stubs.length < 50) {
       const unknown = match[1]
       console.warn(`⚠  Unknown utility in @apply: "${unknown}" — stub injected for scanning. Add "@utility ${unknown} {}" to your CSS to silence this.`)
-      return compileWithFallback(css, base, [...stubs, unknown])
+      return compileWithFallback(css, base, compileFn, [...stubs, unknown])
     }
     throw err
   }
@@ -33,7 +35,10 @@ async function compileWithFallback(
 // ─── Cache: compile result per CSS file ──────────────────────────────────────
 const compileCache = new Map<string, TailwindCompileResult>()
 
-export async function loadTailwindContext(cssFile: string): Promise<TailwindCompileResult> {
+export async function loadTailwindContext(
+  cssFile: string,
+  compileFn: CompileFn = compile,
+): Promise<TailwindCompileResult> {
   const abs = path.resolve(cssFile)
   if (compileCache.has(abs)) return compileCache.get(abs)!
 
@@ -43,7 +48,7 @@ export async function loadTailwindContext(cssFile: string): Promise<TailwindComp
 
   const css = fs.readFileSync(abs, 'utf8')
 
-  const result = await compileWithFallback(css, path.dirname(abs))
+  const result = await compileWithFallback(css, path.dirname(abs), compileFn)
 
   compileCache.set(abs, result)
   return result
