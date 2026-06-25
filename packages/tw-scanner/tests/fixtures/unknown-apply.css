@@ -1,0 +1,5 @@
+@import "tailwindcss";
+
+.btn {
+  @apply custom-utility-one custom-utility-two;
+}

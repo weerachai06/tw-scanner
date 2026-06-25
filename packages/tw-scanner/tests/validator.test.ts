@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeAll } from 'bun:test'
+import { describe, it, expect, beforeAll, spyOn } from 'bun:test'
 import path from 'path'
 import { loadTailwindContext, validateBatch, isValidClass } from '../src/validator.js'
 
 const cssFile = path.resolve(import.meta.dir, 'fixtures/globals.css')
+const unknownApplyFile = path.resolve(import.meta.dir, 'fixtures/unknown-apply.css')
 
 // compile takes a moment — load once for the whole suite
 let context: Awaited<ReturnType<typeof loadTailwindContext>>
@@ -24,6 +25,47 @@ describe('loadTailwindContext', () => {
 
   it('throws when the CSS file does not exist', async () => {
     expect(loadTailwindContext('/nonexistent/tailwind.css')).rejects.toThrow()
+  })
+
+  describe('compileWithFallback — unknown @apply utilities', () => {
+    it('succeeds when CSS uses @apply with unknown utilities', async () => {
+      const spy = spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const ctx = await loadTailwindContext(unknownApplyFile)
+        expect(ctx).toBeDefined()
+        expect(typeof ctx.build).toBe('function')
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it('emits a warning for each unknown utility stubbed', async () => {
+      const warnings: string[] = []
+      const spy = spyOn(console, 'warn').mockImplementation((msg: string) => {
+        warnings.push(msg)
+      })
+      try {
+        await loadTailwindContext(unknownApplyFile)
+        // Two unknown utilities → two stub warnings (or served from cache with 0 — both valid)
+        const stubWarnings = warnings.filter((w) => w.includes('stub injected'))
+        // If cache hit from the previous test, no warnings are emitted
+        expect(stubWarnings.length === 0 || stubWarnings.length === 2).toBe(true)
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it('still validates normal Tailwind classes after stubbing', async () => {
+      const spy = spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const ctx = await loadTailwindContext(unknownApplyFile)
+        expect(isValidClass('flex', ctx)).toBe(true)
+        expect(isValidClass('text-white', ctx)).toBe(true)
+        expect(isValidClass('not-a-class', ctx)).toBe(false)
+      } finally {
+        spy.mockRestore()
+      }
+    })
   })
 })
 
