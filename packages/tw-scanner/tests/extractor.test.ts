@@ -161,6 +161,110 @@ describe('parseCssModuleClasses', () => {
   })
 })
 
+describe('parseClassesFromSource — expression patterns', () => {
+  const f = '/fake/component.tsx'
+
+  it('static template literal (no expressions) extracts all classes', () => {
+    const { classes } = parseClassesFromSource(
+      "export const x = clsx(`flex items-center bg-white`)",
+      f, false,
+    )
+    const values = classes.map((c) => c.value)
+    expect(values).toContain('flex')
+    expect(values).toContain('items-center')
+    expect(values).toContain('bg-white')
+    expect(classes.every((c) => !c.isDynamic)).toBe(true)
+  })
+
+  it('array argument in clsx extracts each element', () => {
+    const { classes } = parseClassesFromSource(
+      "export const x = clsx(['bg-red-500', 'text-white'])",
+      f, false,
+    )
+    const values = classes.map((c) => c.value)
+    expect(values).toContain('bg-red-500')
+    expect(values).toContain('text-white')
+  })
+
+  it('object with string-literal key extracts the key as a class', () => {
+    const { classes } = parseClassesFromSource(
+      "export const x = clsx({ 'bg-red-500': cond, 'text-white': true })",
+      f, false,
+    )
+    const values = classes.map((c) => c.value)
+    expect(values).toContain('bg-red-500')
+    expect(values).toContain('text-white')
+  })
+
+  it('spread element inside object does not throw', () => {
+    const { classes, error } = parseClassesFromSource(
+      "export const x = clsx({ ...obj, 'p-4': true })",
+      f, false,
+    )
+    expect(error).toBeUndefined()
+    expect(classes.map((c) => c.value)).toContain('p-4')
+  })
+
+  it('conditional expression extracts both branches', () => {
+    const { classes } = parseClassesFromSource(
+      "export const x = clsx(cond ? 'bg-red-500' : 'bg-blue-500')",
+      f, false,
+    )
+    const values = classes.map((c) => c.value)
+    expect(values).toContain('bg-red-500')
+    expect(values).toContain('bg-blue-500')
+  })
+
+  it('member-expression callee (utils.cn) at top level extracts arguments', () => {
+    const { classes } = parseClassesFromSource(
+      "export const x = utils.cn('flex', 'items-center')",
+      f, false,
+    )
+    const values = classes.map((c) => c.value)
+    expect(values).toContain('flex')
+    expect(values).toContain('items-center')
+  })
+
+  it('member-expression callee nested inside clsx (visitExpression path) extracts arguments', () => {
+    // nested call goes through visitExpression's CallExpression case, not walk's
+    const { classes } = parseClassesFromSource(
+      "export const x = clsx(utils.cn('flex', 'items-center'))",
+      f, false,
+    )
+    const values = classes.map((c) => c.value)
+    expect(values).toContain('flex')
+    expect(values).toContain('items-center')
+  })
+
+  it('computed member-expression callee nested in clsx does not throw', () => {
+    // utils['cn'](...) — computed callee → null → skipped, no crash
+    const { classes, error } = parseClassesFromSource(
+      "export const x = clsx(utils['cn']('flex'), 'text-white')",
+      f, false,
+    )
+    expect(error).toBeUndefined()
+    expect(classes.map((c) => c.value)).toContain('text-white')
+  })
+
+  it('spread argument in clsx does not throw and extracts sibling literals', () => {
+    const { classes, error } = parseClassesFromSource(
+      "export const x = clsx(...args, 'text-white')",
+      f, false,
+    )
+    expect(error).toBeUndefined()
+    expect(classes.map((c) => c.value)).toContain('text-white')
+  })
+
+  it('JSX namespaced attribute (xml:lang) does not throw', () => {
+    const { classes, error } = parseClassesFromSource(
+      'const C = () => <div xml:lang="en" className="flex" />',
+      f, true,
+    )
+    expect(error).toBeUndefined()
+    expect(classes.map((c) => c.value)).toContain('flex')
+  })
+})
+
 describe('parseCssModuleUsages', () => {
   it('extracts static property access (styles.btn)', () => {
     const { usages } = parseCssModuleUsages(moduleSource, moduleFixture)
