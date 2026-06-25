@@ -53,8 +53,11 @@ export function printReport(result: ScanResult, opts: { json?: boolean; verbose?
       for (const item of items) {
         const loc = pc.dim(`${item.line}:${item.col}`)
         const cls = pc.red(pc.bold(item.value))
+        const badge = item._result.isLikelyUtility
+          ? pc.yellow('[utility?]')
+          : pc.dim('[custom]')
         const ctx = pc.dim(`…${item.context}…`)
-        console.log(`    ${loc}  ${cls}`)
+        console.log(`    ${loc}  ${cls}  ${badge}`)
         if (opts.verbose) {
           console.log(`         ${ctx}`)
         }

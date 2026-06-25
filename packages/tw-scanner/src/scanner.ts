@@ -1,7 +1,7 @@
 import { globSync } from 'glob'
 import * as path from 'path'
 import { extractClassesFromFile, extractClassesFromCss, extractCssModuleUsages, extractDefinedCssModuleClasses } from './extractor.js'
-import { loadTailwindContext, validateBatch } from './validator.js'
+import { loadTailwindContext, validateBatch, looksLikeUtility } from './validator.js'
 import { ScanResult, ExtractedClass, ValidationResult, CssModuleViolation } from './types.js'
 
 export interface ScanOptions {
@@ -72,7 +72,7 @@ export async function scan(opts: ScanOptions): Promise<ScanResult> {
   for (const cls of staticClasses) {
     const valid = validityMap.get(cls.value) ?? false
     if (!valid) {
-      invalid.push({ cls, valid })
+      invalid.push({ cls, valid, isLikelyUtility: looksLikeUtility(cls.value) })
     }
   }
 
