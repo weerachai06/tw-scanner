@@ -3,4 +3,5 @@ node_modules
 dist
 .turbo
 coverage
+test-output.log
 !CLAUDE.md

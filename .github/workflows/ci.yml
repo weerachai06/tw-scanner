@@ -27,7 +27,15 @@ jobs:
         run: bun run typecheck
 
       - name: Test
-        run: bun run test
+        run: bun run test 2>&1 | tee test-output.log
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sed -E 's/^.*:test: ?//' test-output.log | awk '/^-+\|/{c++} {if(c>=1) print} c==3{exit}' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload coverage report
         if: always()
