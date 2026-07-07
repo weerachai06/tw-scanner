@@ -28,3 +28,11 @@ jobs:
 
       - name: Test
         run: bun run test
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: packages/*/coverage
+          retention-days: 14

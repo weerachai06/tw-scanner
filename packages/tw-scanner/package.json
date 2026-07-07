@@ -14,7 +14,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "scan": "bun src/cli.ts",
-    "test": "bun test"
+    "test": "bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage"
   },
   "dependencies": {
     "@tailwindcss/node": "^4.3.1",
