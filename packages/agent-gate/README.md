@@ -28,6 +28,7 @@ Put it at the repo root. Every field is optional.
 
 ```json
 {
+  "$schema": "https://unpkg.com/@weerachai06/agent-gate/schema.json",
   "rules": [
     {
       "id": "fcis-core-pure",
@@ -47,6 +48,22 @@ Put it at the repo root. Every field is optional.
   "maxOutputChars": 4000,
   "base": "origin/main"
 }
+```
+
+### Editor completion with `$schema`
+
+`$schema` points your editor at [`schema.json`](https://unpkg.com/@weerachai06/agent-gate/schema.json), which ships in this package. You get completion, a tooltip on every field, and errors for a wrong type or a misspelled key (the schema rejects keys it doesn't know, for example `forbidImport` instead of `forbidImports`; agent-gate itself would ignore them). VS Code, JetBrains IDEs, and any editor that supports JSON Schema pick it up with no extra setup. agent-gate ignores the `$schema` line itself.
+
+The URL above always serves the latest version. To match the version you installed, pin it:
+
+```json
+"$schema": "https://unpkg.com/@weerachai06/agent-gate@0.1.0/schema.json"
+```
+
+or, if you installed the package with `npm i -D`, use the local copy so it works offline:
+
+```json
+"$schema": "./node_modules/@weerachai06/agent-gate/schema.json"
 ```
 
 ### Rules (pure checks on source files)

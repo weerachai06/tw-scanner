@@ -8,7 +8,8 @@
     "agent-gate": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "schema.json"
   ],
   "scripts": {
     "build": "tsc",
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
+    "ajv": "^8.20.0",
     "typescript": "^5.8.3"
   }
 }
