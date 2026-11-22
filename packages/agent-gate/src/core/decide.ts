@@ -55,3 +55,12 @@ export function decide(
 
   return { action: 'allow' }
 }
+
+/** A block on a retry becomes a warning, so a problem the agent cannot fix does not loop forever. */
+export function relax(decision: Decision): Decision {
+  if (decision.action !== 'block') return decision
+  return {
+    action: 'warn',
+    message: `${decision.reason}\nagent-gate: these were already reported once this turn, so this Stop is not blocked again.`,
+  }
+}

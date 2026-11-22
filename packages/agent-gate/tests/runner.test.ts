@@ -641,14 +641,35 @@ describe('runHook — stop with a session baseline', () => {
     expect(w.gitCalls().filter((c) => c.startsWith('diff')).some((c) => c.endsWith(' start123'))).toBe(true)
   })
 
-  it('merges the branch diff and the session diff without duplicates', async () => {
+  it('checks only what changed since the session started, not the whole branch', async () => {
     const config2 = stopConfig({ commands: [{ name: 'lint', run: ['lint', '{files}'] }] })
     const w = world({
       files: { '/repo/agent-gate.json': config2, [BASELINE]: baseline({ guard: { ...guardHashes, 'agent-gate.json': hashContent(config2) } }) },
       diffs: { HEAD: ['a.ts', 'b.ts'], start123: ['b.ts', 'c.ts'] },
     })
     await runHook(stopFor('sess-1'), ROOT, w.deps)
-    expect(w.commandCalls()).toEqual([['lint', 'a.ts', 'b.ts', 'c.ts']])
+    expect(w.commandCalls()).toEqual([['lint', 'b.ts', 'c.ts']])
+  })
+
+  it('ignores a violation committed on the branch before the session started', async () => {
+    const w = world({
+      files: { '/repo/src/core/old.ts': "import fs from 'fs'" },
+      originHead: 'origin/main',
+      mergeBase: 'base999',
+      diffs: { base999: ['src/core/old.ts'], start123: ['src/new.ts'] },
+    })
+    const out = await runHook(stopFor('sess-1'), ROOT, w.deps)
+    expect(out).toEqual({ exitCode: 0, stdout: '', stderr: '' })
+  })
+
+  it('falls back to the whole branch when the baseline commit no longer exists', async () => {
+    const w = world({
+      files: { '/repo/src/core/old.ts': "import fs from 'fs'" },
+      originHead: 'origin/main',
+      mergeBase: 'base999',
+      diffs: { base999: ['src/core/old.ts'] },
+    })
+    expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
   })
 
   it('ignores the session diff when the baseline commit no longer exists', async () => {
@@ -694,5 +715,30 @@ describe('runHook — stop with a session baseline', () => {
     const out = await runHook(raw, ROOT, w.deps, 'kiro')
     expect(out.exitCode).toBe(0)
     expect(JSON.parse(out.stdout).reason).toContain('[session] git stash changed')
+  })
+})
+
+describe('runHook — stop retry (stop_hook_active)', () => {
+  const retryRaw = (active: boolean) =>
+    JSON.stringify({ cwd: ROOT, hook_event_name: 'Stop', stop_hook_active: active })
+  const violating = () =>
+    stopWorld({
+      files: { '/repo/agent-gate.json': stopConfig(), '/repo/src/core/x.ts': "import fs from 'fs'" },
+      changed: ['src/core/x.ts'],
+    })
+
+  it('blocks on the first Stop', async () => {
+    expect((await runHook(retryRaw(false), ROOT, violating().deps)).exitCode).toBe(2)
+  })
+
+  it('does not block again on a retry: exits 1 and still reports the problem', async () => {
+    const out = await runHook(retryRaw(true), ROOT, violating().deps)
+    expect(out.exitCode).toBe(1)
+    expect(out.stderr).toContain('src/core/x.ts:1:0 imports "fs"')
+  })
+
+  it('allows silently on a retry when everything is clean', async () => {
+    const w = stopWorld({ files: { '/repo/agent-gate.json': stopConfig() } })
+    expect(await runHook(retryRaw(true), ROOT, w.deps)).toEqual({ exitCode: 0, stdout: '', stderr: '' })
   })
 })

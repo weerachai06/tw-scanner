@@ -2,7 +2,7 @@ import * as path from 'path'
 import { baselinePath, hashContent, parseBaseline, tamperProblems } from './core/baseline.js'
 import { formatClaudeOutput, parseClaudeInput } from './core/claude.js'
 import { parseConfig } from './core/config.js'
-import { decide } from './core/decide.js'
+import { decide, relax } from './core/decide.js'
 import { GUARD_DIRS, GUARD_FILES, guard } from './core/guard.js'
 import { formatKiroOutput, parseKiroInput } from './core/kiro.js'
 import { checkFiles, type SourceFile } from './core/rules.js'
@@ -72,9 +72,16 @@ async function diffTarget(root: string, base: string | undefined, deps: Deps): P
   return base === undefined ? 'HEAD' : { error: `base "${base}" not found (git merge-base ${base} HEAD failed)` }
 }
 
+const listChanged = (target: string, root: string, deps: Deps) =>
+  git(['diff', '-z', '--name-only', '--relative', '--diff-filter=d', target], root, deps)
+const listUntracked = (root: string, deps: Deps) => git(['ls-files', '-z', '--others', '--exclude-standard'], root, deps)
+
 /**
- * Files changed since the diff target and, when a session baseline exists, since the commit the
- * session started at (so commits made without a remote are still seen), plus untracked files.
+ * Files changed in this session when a baseline exists: since the commit the session started at,
+ * plus untracked files. Work committed on the branch before the session is not the agent's to fix.
+ * Without a baseline, or when its commit no longer exists (rebased away), the whole branch counts:
+ * since the merge-base with the base branch, so commits the agent made still count.
+ * An explicit `base` that cannot be resolved is an error.
  */
 async function changedFiles(
   root: string,
@@ -82,15 +89,14 @@ async function changedFiles(
   sessionHead: string | null,
   deps: Deps,
 ): Promise<string[] | { error: string }> {
+  if (sessionHead !== null) {
+    const [session, untracked] = await Promise.all([listChanged(sessionHead, root, deps), listUntracked(root, deps)])
+    if (session.exitCode === 0) return parseGitFiles(session.stdout, untracked.exitCode === 0 ? untracked.stdout : '')
+  }
+
   const target = await diffTarget(root, base, deps)
   if (typeof target !== 'string') return target
-
-  const targets = sessionHead !== null && sessionHead !== target ? [target, sessionHead] : [target]
-  const outcomes = await Promise.all([
-    ...targets.map((t) => git(['diff', '-z', '--name-only', '--relative', '--diff-filter=d', t], root, deps)),
-    git(['ls-files', '-z', '--others', '--exclude-standard'], root, deps),
-  ])
-  // A target that no longer exists (rebased away, garbage collected) is skipped, not fatal.
+  const outcomes = await Promise.all([listChanged(target, root, deps), listUntracked(root, deps)])
   const listed = outcomes.filter((o) => o.exitCode === 0)
   if (listed.length === 0) return { error: 'could not list changed files (is this a git repository?)' }
   return parseGitFiles(...listed.map((o) => o.stdout))
@@ -144,7 +150,10 @@ async function runStop(
   deps: Deps,
   format: Format,
   sessionId: string | undefined,
+  retry: boolean,
 ): Promise<AgentOutput> {
+  // The agent was already blocked once this turn: report again but do not trap it in a loop.
+  const settle = (decision: Decision) => format(retry ? relax(decision) : decision)
   const file = sessionId === undefined ? null : baselinePath(deps.tmpDir, sessionId)
   const baseline = file === null ? null : parseBaseline(deps.readFile(file))
   const problems = baseline === null ? [] : tamperProblems(baseline, await takeSnapshot(root, deps))
@@ -156,7 +165,7 @@ async function runStop(
   // Cheap checks first: rules are pure, so a broken rule skips the slow commands.
   const covered = selectFiles(changed, config.rules.flatMap((r) => r.files))
   const violations = checkFiles(readSources(covered, root, deps), config.rules)
-  if (problems.length + violations.length > 0) return format(decide(violations, [], problems))
+  if (problems.length + violations.length > 0) return settle(decide(violations, [], problems))
 
   const failures: CommandFailure[] = []
   for (const plan of planCommands(config.commands, changed)) {
@@ -171,7 +180,7 @@ async function runStop(
     })
     break
   }
-  return format(decide([], failures))
+  return settle(decide([], failures))
 }
 
 /** Fail-open: a problem in agent-gate itself exits 1, which does not block the agent. */
@@ -199,7 +208,7 @@ export async function runHook(
   const parsed = parseConfig(configSource)
   if (!parsed.ok) return failure(`invalid ${CONFIG_FILE}:\n${parsed.errors.join('\n')}`)
 
-  if (event.kind === 'stop') return runStop(root, parsed.config, deps, format, event.sessionId)
+  if (event.kind === 'stop') return runStop(root, parsed.config, deps, format, event.sessionId, event.retry)
 
   const rel = event.files.flatMap((f) => toRelative(f, root) ?? [])
   return format(decide(checkFiles(readSources(rel, root, deps), parsed.config.rules)))

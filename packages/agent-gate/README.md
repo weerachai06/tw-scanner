@@ -100,7 +100,7 @@ The base branch is `base` from `agent-gate.json` (for example `"origin/develop"`
 | No `base`, and git finds no `origin/HEAD` or no merge-base (no remote, or a shallow clone) | Falls back to `HEAD`: only uncommitted and untracked files are checked, so work the agent commits is no longer seen. |
 | You are on the base branch | Local commits not yet pushed, uncommitted files, and untracked files. |
 
-Because the scope is the whole branch, a rule violation in an earlier commit on the branch (yours or a teammate's) is also reported. Violations that were already on the base branch are not.
+Without a [session baseline](#session-baseline-optional-recommended), the scope is the whole branch, so a rule violation in an earlier commit on the branch (yours or a teammate's) is also reported. Violations that were already on the base branch are not. With a baseline, only changes since the session started are checked (see below).
 
 Commands without a `files` filter (`typecheck`, `test`) run on the whole project whenever at least one file changed. If nothing changed, nothing runs.
 
@@ -205,7 +205,7 @@ Captured on kiro-cli 3.5.0 (V3):
 |---|---|
 | `PreToolUse` | `session_id`, `hook_event_name`, `cwd`, `tool_name`, `tool_input` |
 | `PostToolUse` | the same, plus `tool_response` (a string). agent-gate ignores it. |
-| `Stop` | `session_id`, `hook_event_name`, `cwd`. There is no retry flag. |
+| `Stop` | `session_id`, `hook_event_name`, `cwd`, `stop_hook_active`. |
 
 | `tool_name` | `tool_input` |
 |---|---|
@@ -231,8 +231,11 @@ A diff can't show everything an agent does. Register a `SessionStart` hook and a
 | Gap | What Stop does with the baseline |
 |---|---|
 | `git stash` hides uncommitted changes | Blocks if a stash entry was added during the session. |
-| No remote or a shallow clone, so committed work is not seen | Also diffs against the commit the session started at, so commits made during the session are checked. |
+| No remote or a shallow clone, so committed work is not seen | Diffs against the commit the session started at, so commits made during the session are checked. |
+| Problems that were already on the branch before the session | Not reported. Only files changed since the session started count, so the agent is not blocked on code it did not touch. If the start commit no longer exists (rebased away), the whole branch is checked again. |
 | A guard file edited through a shell command such as `sed -i` | Blocks if `agent-gate.json`, `.claude/settings*.json`, or a file in `.kiro/hooks/` changed. |
+
+If Claude Code sends `stop_hook_active: true` (the agent was already blocked once this turn), a block becomes a warning: exit `1`, same text. The agent is told again but cannot get stuck in a loop. Kiro sends no such flag.
 
 Add the hook next to the others. Claude Code, in `.claude/settings.json`:
 
