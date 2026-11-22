@@ -3,7 +3,6 @@ import { baselinePath, hashContent, parseBaseline, tamperProblems } from '../src
 import type { Snapshot } from '../src/core/types.js'
 
 const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
-  head: 'abc123',
   stash: null,
   guard: { 'agent-gate.json': 'h1', '.claude/settings.json': null },
   ...over,
@@ -40,7 +39,7 @@ describe('parseBaseline', () => {
     expect(parseBaseline(JSON.stringify(s))).toEqual(s)
   })
 
-  it.each([null, '', 'nope', '[]', '{}', '{"head":1}', '{"head":null,"stash":null}', '{"head":null,"stash":null,"guard":{"a":5}}'])(
+  it.each([null, '', 'nope', '[]', '{}', '{"stash":1}', '{"stash":null}', '{"stash":null,"guard":{"a":5}}'])(
     'returns null for %j',
     (raw) => {
       expect(parseBaseline(raw)).toBeNull()
@@ -92,7 +91,8 @@ describe('tamperProblems', () => {
     expect(tamperProblems(snap(), withNew)[0]).toContain('.kiro/hooks/x.json')
   })
 
-  it('a moved HEAD alone is not tampering', () => {
-    expect(tamperProblems(snap(), snap({ head: 'other' }))).toEqual([])
+  it('a baseline saved by an older version (with a head) still parses', () => {
+    const old = JSON.stringify({ head: 'abc123', stash: null, guard: {} })
+    expect(parseBaseline(old)).toEqual({ head: 'abc123', stash: null, guard: {} })
   })
 })

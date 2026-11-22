@@ -21,7 +21,6 @@ const valid: [string, unknown][] = [
     'every field',
     {
       $schema: 'https://example.com/schema.json',
-      base: 'origin/main',
       maxOutputChars: 4000,
       rules: [
         {
@@ -79,9 +78,6 @@ const invalid: [string, unknown][] = [
   ['negative maxOutputChars', { maxOutputChars: -1 }],
   ['maxOutputChars that is a string', { maxOutputChars: '4000' }],
   ['maxOutputChars that is null', { maxOutputChars: null }],
-  ['an empty base', { base: '' }],
-  ['a base that is a number', { base: 3 }],
-  ['a base that is null', { base: null }],
 ]
 
 describe('schema.json agrees with parseConfig', () => {
