@@ -76,7 +76,7 @@ or, if you installed the package with `npm i -D`, use the local copy so it works
 | `forbidImportNames` | Names that must not be imported from a module. `names` accept globs (`use*`). Matches the original name, not the alias. |
 | `forbidGlobals` | Identifiers that must not be used (`fetch`, `process`). |
 | `message` | Shown to the agent. Quote the line from your `CLAUDE.md` so it reads the repo's own wording. |
-| `fix` | Optional. How to fix a violation, shown after `message`. One or two sentences, pointing to an example file. Costs tokens only when the rule is broken. Works the same for Kiro and Claude Code. Without it, agent-gate adds a built-in hint for `fs`, `child_process`, `net`, `http`, `https`, `fetch`, `process` and React `use*` hooks. A rule's `fix` replaces the built-in hint. |
+| `fix` | Optional. How to fix a violation, shown after `message`. One or two sentences, pointing to an example file. Costs tokens only when the rule is broken. Works the same for Kiro and Claude Code. Without it, agent-gate adds a built-in hint for `fs`, `child_process`, `net`, `http`, `https`, `fetch`, `process`, `Date` and React `use*` hooks. A rule's `fix` replaces the built-in hint. |
 
 ### Commands (run on Stop only)
 

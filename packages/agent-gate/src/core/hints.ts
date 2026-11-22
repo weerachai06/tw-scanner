@@ -10,6 +10,7 @@ const HINTS: Record<string, string> = {
   http: `${IO} Let the shell make the request and pass the response in.`,
   https: `${IO} Let the shell make the request and pass the response in.`,
   fetch: `${IO} Let the shell make the request and pass the response in.`,
+  Date: 'Reading the clock is not pure. Let the shell read the time and pass it in as an argument (now: Date).',
   process: `${IO} Let the shell read env, argv or cwd and pass them in as arguments.`,
 }
 

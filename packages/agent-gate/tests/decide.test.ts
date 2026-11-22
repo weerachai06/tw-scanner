@@ -25,6 +25,7 @@ describe('decide', () => {
     }
     expect(reason('node:fs')).toContain('Fix: Do not do I/O here.')
     expect(reason('fs/promises')).toContain('Take file contents as an argument')
+    expect(reason('Date', 'global')).toContain('Let the shell read the time')
     expect(reason('child_process')).toContain('Return the argv to run')
     expect(reason('fetch', 'global')).toContain('Let the shell make the request')
     expect(reason('useState from "react"', 'import-name')).toContain('Hooks belong in a component')
