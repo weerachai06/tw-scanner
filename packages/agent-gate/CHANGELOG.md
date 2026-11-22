@@ -1,5 +1,11 @@
 # @weerachai06/agent-gate
 
+## 0.1.1
+
+### Patch Changes
+
+- 7a6edaa: Add a Date hint and use `npx --yes` in the README commands.
+
 ## 0.1.0
 
 ### Minor Changes
