@@ -26,5 +26,10 @@
     "@types/node": "^26.0.0",
     "tailwindcss": "^4.3.1",
     "typescript": "^5.8.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weerachai06/tw-scanner.git",
+    "directory": "packages/tw-scanner"
   }
 }
