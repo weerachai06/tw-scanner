@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "@weerachai06/tw-scanner",
@@ -8,9 +9,21 @@
         "turbo": "^2",
       },
     },
+    "packages/agent-gate": {
+      "name": "@weerachai06/agent-gate",
+      "version": "0.0.0",
+      "dependencies": {
+        "@typescript-eslint/typescript-estree": "^8.61.1",
+        "minimatch": "^10.0.0",
+      },
+      "devDependencies": {
+        "@types/node": "^26.0.0",
+        "typescript": "^5.8.3",
+      },
+    },
     "packages/tw-scanner": {
       "name": "@weerachai06/tw-scanner",
-      "version": "1.1.6",
+      "version": "1.1.7",
       "bin": {
         "tw-scanner": "./dist/cli.js",
       },
@@ -113,6 +126,8 @@
     "@typescript-eslint/typescript-estree": ["@typescript-eslint/typescript-estree@8.61.1", "", { "dependencies": { "@typescript-eslint/project-service": "8.61.1", "@typescript-eslint/tsconfig-utils": "8.61.1", "@typescript-eslint/types": "8.61.1", "@typescript-eslint/visitor-keys": "8.61.1", "debug": "^4.4.3", "minimatch": "^10.2.2", "semver": "^7.7.3", "tinyglobby": "^0.2.15", "ts-api-utils": "^2.5.0" }, "peerDependencies": { "typescript": ">=4.8.4 <6.1.0" } }, "sha512-u+oQD3BqYWPc8YV9Zab4vaJElJuwOLPRc10Jm1o/qS+6Qwen14HCWwx0Seo4LnSn2wxea2Ik8DxPt2/FHmuhrg=="],
 
     "@typescript-eslint/visitor-keys": ["@typescript-eslint/visitor-keys@8.61.1", "", { "dependencies": { "@typescript-eslint/types": "8.61.1", "eslint-visitor-keys": "^5.0.0" } }, "sha512-6fJ9MHWtK14C1DSkiMlHUSOmrVebL7150xZJBlJiL62jjhIA4JmOq6flwBgDxIdBKKdoiZRel+dfPD5MLfny3w=="],
+
+    "@weerachai06/agent-gate": ["@weerachai06/agent-gate@workspace:packages/agent-gate"],
 
     "@weerachai06/tw-scanner": ["@weerachai06/tw-scanner@workspace:packages/tw-scanner"],
 
