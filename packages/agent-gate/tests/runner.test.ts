@@ -709,6 +709,72 @@ describe('runHook — stop with a session baseline', () => {
     expect((await runHook(stopFor(), ROOT, w.deps)).exitCode).toBe(0)
   })
 
+  describe('does not block twice on the same problem (Kiro sends no retry flag)', () => {
+    const bad = { '/repo/src/core/x.ts': "import fs from 'fs'" }
+    const badWorld = (over: World = {}) => world({ files: bad, changed: ['src/core/x.ts'], ...over })
+
+    it('blocks the first time, then warns when the same problem comes back', async () => {
+      const w = badWorld()
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+      const again = await runHook(stopFor('sess-1'), ROOT, w.deps)
+      expect(again.exitCode).toBe(1)
+      expect(again.stderr).toContain('src/core/x.ts:1:0 imports "fs"')
+    })
+
+    it('blocks again when the problem is different', async () => {
+      const w = badWorld()
+      await runHook(stopFor('sess-1'), ROOT, w.deps)
+      w.store['/repo/src/core/x.ts'] = "\nimport fs from 'fs'"
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+    })
+
+    it('forgets the problem once a Stop is clean, so it blocks if it returns', async () => {
+      const w = badWorld()
+      await runHook(stopFor('sess-1'), ROOT, w.deps)
+      w.store['/repo/src/core/x.ts'] = 'export const a = 1'
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(0)
+      w.store['/repo/src/core/x.ts'] = "import fs from 'fs'"
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+    })
+
+    it('treats a failing command with changing output as the same problem', async () => {
+      const w = world({
+        changed: ['src/a.ts'],
+        commands: { 'bun run typecheck': { exitCode: 1, stdout: 'error 1', stderr: '', timedOut: false } },
+      })
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+      const git = w.deps.runCommand
+      w.deps.runCommand = async (argv, opts) =>
+        argv[0] === 'git' ? git(argv, opts) : { exitCode: 1, stdout: 'error 1 (12ms)', stderr: '', timedOut: false }
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(1)
+    })
+
+    it('still blocks when the memory cannot be saved', async () => {
+      const w = badWorld()
+      w.deps.writeFile = () => {
+        throw new Error('read-only')
+      }
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+    })
+
+    it('always blocks when there is no baseline to remember in', async () => {
+      const w = stopWorld({ files: { '/repo/agent-gate.json': config, ...bad }, changed: ['src/core/x.ts'] })
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+      expect(w.writes).toEqual([])
+    })
+
+    it('works for Kiro: second identical block is a warning, not decision:block', async () => {
+      const w = badWorld()
+      const raw = JSON.stringify({ session_id: 'sess-1', hook_event_name: 'Stop', cwd: ROOT })
+      expect(JSON.parse((await runHook(raw, ROOT, w.deps, 'kiro')).stdout).decision).toBe('block')
+      const again = await runHook(raw, ROOT, w.deps, 'kiro')
+      expect(again.exitCode).toBe(1)
+      expect(again.stdout).toBe('')
+    })
+  })
+
   it('reports session problems to Kiro as a decision:block JSON', async () => {
     const w = world({ stash: 'beef' })
     const raw = JSON.stringify({ session_id: 'sess-1', hook_event_name: 'Stop', cwd: ROOT })

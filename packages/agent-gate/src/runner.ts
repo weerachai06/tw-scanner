@@ -144,6 +144,17 @@ async function startSession(
 
 type Format = (decision: Decision) => AgentOutput
 
+/** Names what went wrong, not the command output, which can change on every run (timings). */
+const signatureOf = (parts: unknown): string => hashContent(JSON.stringify(parts))
+
+/** Best effort: when it cannot be saved, Stop just blocks every time, as before. */
+function remember(file: string | null, baseline: Snapshot | null, lastBlock: string | null, deps: Deps): void {
+  if (file === null || baseline === null || (baseline.lastBlock ?? null) === lastBlock) return
+  try {
+    deps.writeFile(file, JSON.stringify({ ...baseline, lastBlock }))
+  } catch {}
+}
+
 async function runStop(
   root: string,
   config: Config,
@@ -152,20 +163,32 @@ async function runStop(
   sessionId: string | undefined,
   retry: boolean,
 ): Promise<AgentOutput> {
-  // The agent was already blocked once this turn: report again but do not trap it in a loop.
-  const settle = (decision: Decision) => format(retry ? relax(decision) : decision)
   const file = sessionId === undefined ? null : baselinePath(deps.tmpDir, sessionId)
   const baseline = file === null ? null : parseBaseline(deps.readFile(file))
+  /**
+   * Do not trap the agent in a loop: a block on a retry (Claude's stop_hook_active), or on the same
+   * problems as the last block (Kiro sends no retry flag), is reported as a warning instead.
+   * `signature` is null when there is nothing to block on.
+   */
+  const settle = (decision: Decision, signature: string | null = null) => {
+    const blocking = decision.action === 'block'
+    const repeated = blocking && signature !== null && baseline?.lastBlock === signature
+    remember(file, baseline, blocking ? signature : null, deps)
+    return format(retry || repeated ? relax(decision) : decision)
+  }
   const problems = baseline === null ? [] : tamperProblems(baseline, await takeSnapshot(root, deps))
 
   const changed = await changedFiles(root, config.base, baseline?.head ?? null, deps)
   if ('error' in changed) return failure(changed.error)
-  if (changed.length === 0 && problems.length === 0) return format({ action: 'allow' })
+  if (changed.length === 0 && problems.length === 0) return settle({ action: 'allow' })
 
   // Cheap checks first: rules are pure, so a broken rule skips the slow commands.
   const covered = selectFiles(changed, config.rules.flatMap((r) => r.files))
   const violations = checkFiles(readSources(covered, root, deps), config.rules)
-  if (problems.length + violations.length > 0) return settle(decide(violations, [], problems))
+  if (problems.length + violations.length > 0) {
+    const where = violations.map((v) => [v.ruleId, v.file, v.line, v.col, v.kind])
+    return settle(decide(violations, [], problems), signatureOf([problems, where]))
+  }
 
   const failures: CommandFailure[] = []
   for (const plan of planCommands(config.commands, changed)) {
@@ -180,7 +203,8 @@ async function runStop(
     })
     break
   }
-  return settle(decide([], failures))
+  const failed = failures.filter((f) => f.exitCode !== null).map((f) => [f.name, f.exitCode])
+  return settle(decide([], failures), signatureOf(failed))
 }
 
 /** Fail-open: a problem in agent-gate itself exits 1, which does not block the agent. */
