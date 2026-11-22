@@ -18,6 +18,33 @@ describe('decide', () => {
     expect(decide([])).toEqual({ action: 'allow' })
   })
 
+  it('adds a built-in hint for a known forbidden module or global', () => {
+    const reason = (found: string, kind: Violation['kind'] = 'import') => {
+      const d = decide([v({ found, kind })])
+      return d.action === 'block' ? d.reason : ''
+    }
+    expect(reason('node:fs')).toContain('Fix: Do not do I/O here.')
+    expect(reason('fs/promises')).toContain('Take file contents as an argument')
+    expect(reason('child_process')).toContain('Return the argv to run')
+    expect(reason('fetch', 'global')).toContain('Let the shell make the request')
+    expect(reason('useState from "react"', 'import-name')).toContain('Hooks belong in a component')
+  })
+
+  it('adds no hint for an unknown module, and lets the rule fix win over the hint', () => {
+    const unknown = decide([v({ found: 'lodash' })])
+    expect(unknown.action === 'block' && unknown.reason).not.toContain('Fix:')
+    const own = decide([v({ found: 'fs', fix: 'use src/exec.ts' })])
+    expect(own.action === 'block' && own.reason).toContain('Fix: use src/exec.ts')
+    expect(own.action === 'block' && own.reason).not.toContain('Do not do I/O here')
+  })
+
+  it('appends the fix after the message when the rule has one', () => {
+    const decision = decide([v({ fix: 'Return an effect; run it in src/exec.ts.' })])
+    expect(decision.action === 'block' && decision.reason).toContain(
+      'Core must be pure Fix: Return an effect; run it in src/exec.ts.',
+    )
+  })
+
   it('blocks and lists each violation with file:line', () => {
     const decision = decide([v(), v({ file: 'src/core/y.ts', line: 9, found: 'child_process' })])
     expect(decision.action).toBe('block')

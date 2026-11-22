@@ -17,6 +17,8 @@ function validateRule(raw: any, i: number): string[] {
   const errors: string[] = []
   if (!isNonEmptyString(raw.id)) errors.push(`${at}: "id" must be a non-empty string`)
   if (!isNonEmptyString(raw.message)) errors.push(`${at}: "message" must be a non-empty string`)
+  if (raw.fix !== undefined && !isNonEmptyString(raw.fix))
+    errors.push(`${at}: "fix" must be a non-empty string`)
   if (!isStringArray(raw.files) || raw.files.length === 0)
     errors.push(`${at}: "files" must be a non-empty array of strings`)
   if (raw.ignore !== undefined && !isStringArray(raw.ignore))

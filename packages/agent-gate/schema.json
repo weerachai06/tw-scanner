@@ -85,6 +85,11 @@
             "type": "string",
             "minLength": 1,
             "description": "Shown to the agent with each problem. Quote the line from your CLAUDE.md so it reads the repo's own wording."
+          },
+          "fix": {
+            "type": "string",
+            "minLength": 1,
+            "description": "How to fix a violation, shown after the message. One or two sentences; point to an example file. Costs tokens only when the rule is broken."
           }
         }
       }

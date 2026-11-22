@@ -15,6 +15,7 @@ const valid: [string, unknown][] = [
   ['empty object', {}],
   ['empty rules', { rules: [] }],
   ['minimal rule', { rules: [rule] }],
+  ['rule with fix', { rules: [{ ...rule, fix: 'move I/O to the shell' }] }],
   ['minimal command', { commands: [command] }],
   [
     'every field',
@@ -46,6 +47,7 @@ const invalid: [string, unknown][] = [
   ['commands that is not an array', { commands: {} }],
   ['commands that is null', { commands: null }],
   ['a rule that is not an object', { rules: [1] }],
+  ['a rule with an empty fix', { rules: [{ ...rule, fix: '' }] }],
   ['a rule that is null', { rules: [null] }],
   ['a rule without id', { rules: [{ files: ['a'], message: 'm' }] }],
   ['a rule with an empty id', { rules: [{ ...rule, id: '' }] }],
