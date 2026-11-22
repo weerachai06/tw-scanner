@@ -11,7 +11,7 @@ Agents ignore repo rules and say "done" without checking. A hook can't make code
 Nothing to install. The hook commands below run the package with `npx`:
 
 ```bash
-npx @weerachai06/agent-gate hook --agent claude
+npx --yes @weerachai06/agent-gate hook --agent claude
 ```
 
 Use the scoped name. `npx agent-gate` is a different package name, not this one.
@@ -114,18 +114,18 @@ Commands without a `files` filter (`typecheck`, `test`) run on the whole project
     "PreToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit",
-        "hooks": [{ "type": "command", "command": "npx @weerachai06/agent-gate hook --agent claude" }]
+        "hooks": [{ "type": "command", "command": "npx --yes @weerachai06/agent-gate hook --agent claude" }]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit",
-        "hooks": [{ "type": "command", "command": "npx @weerachai06/agent-gate hook --agent claude" }]
+        "hooks": [{ "type": "command", "command": "npx --yes @weerachai06/agent-gate hook --agent claude" }]
       }
     ],
     "Stop": [
       {
-        "hooks": [{ "type": "command", "command": "npx @weerachai06/agent-gate hook --agent claude" }]
+        "hooks": [{ "type": "command", "command": "npx --yes @weerachai06/agent-gate hook --agent claude" }]
       }
     ]
   }
@@ -152,14 +152,14 @@ Exit codes: `0` allow, `2` block (the errors go to the agent on stderr), `1` age
       "name": "agent-gate-guard",
       "trigger": "PreToolUse",
       "matcher": "write",
-      "action": { "type": "command", "command": "npx @weerachai06/agent-gate hook --agent kiro" },
+      "action": { "type": "command", "command": "npx --yes @weerachai06/agent-gate hook --agent kiro" },
       "timeout": 30,
       "enabled": true
     },
     {
       "name": "agent-gate-stop",
       "trigger": "Stop",
-      "action": { "type": "command", "command": "npx @weerachai06/agent-gate hook --agent kiro" },
+      "action": { "type": "command", "command": "npx --yes @weerachai06/agent-gate hook --agent kiro" },
       "timeout": 300,
       "enabled": true
     }
@@ -186,13 +186,13 @@ Pipe a sample payload into the command Kiro would run. The guard should print it
 
 ```bash
 echo '{"hook_event_name":"PreToolUse","cwd":"'"$PWD"'","tool_name":"str_replace","tool_input":{"path":"agent-gate.json"}}' \
-  | npx @weerachai06/agent-gate hook --agent kiro; echo "exit=$?"
+  | npx --yes @weerachai06/agent-gate hook --agent kiro; echo "exit=$?"
 ```
 
 `Stop` exits `0` with no output when everything passes. When a rule or command fails it exits `0` and prints a `{"decision":"block","reason":…}` JSON line, which is how Kiro knows to keep the agent going:
 
 ```bash
-echo '{"hook_event_name":"Stop","cwd":"'"$PWD"'"}' | npx @weerachai06/agent-gate hook --agent kiro; echo "exit=$?"
+echo '{"hook_event_name":"Stop","cwd":"'"$PWD"'"}' | npx --yes @weerachai06/agent-gate hook --agent kiro; echo "exit=$?"
 ```
 
 `Stop` needs a git repository to find the changed files. Outside one it exits `1` with a message and does not block. Inside one, it diffs against the merge-base with the base branch, as described above.
@@ -239,7 +239,7 @@ Add the hook next to the others. Claude Code, in `.claude/settings.json`:
 ```json
 "SessionStart": [
   {
-    "hooks": [{ "type": "command", "command": "npx @weerachai06/agent-gate hook --agent claude" }]
+    "hooks": [{ "type": "command", "command": "npx --yes @weerachai06/agent-gate hook --agent claude" }]
   }
 ]
 ```
@@ -250,7 +250,7 @@ kiro-cli, one more entry in the `hooks` array of `.kiro/hooks/agent-gate.json`:
 {
   "name": "agent-gate-session-start",
   "trigger": "SessionStart",
-  "action": { "type": "command", "command": "npx @weerachai06/agent-gate hook --agent kiro" },
+  "action": { "type": "command", "command": "npx --yes @weerachai06/agent-gate hook --agent kiro" },
   "timeout": 30,
   "enabled": true
 }
