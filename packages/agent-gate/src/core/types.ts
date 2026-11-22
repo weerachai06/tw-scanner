@@ -34,8 +34,6 @@ export interface Config {
   rules: Rule[]
   commands: CommandSpec[]
   maxOutputChars: number
-  /** Git ref that Stop diffs against, e.g. `origin/main`. Default: the remote's default branch. */
-  base?: string
 }
 
 export interface PlannedCommand {
@@ -88,8 +86,6 @@ export interface AgentOutput {
 
 /** What the repo looked like at one moment, to spot changes agent-gate cannot see in a diff. */
 export interface Snapshot {
-  /** `git rev-parse HEAD`, null outside a repo or before the first commit. */
-  head: string | null
   /** The top stash entry, null when there is none. */
   stash: string | null
   /** Hash of each file that controls the checks, null when the file is missing. */

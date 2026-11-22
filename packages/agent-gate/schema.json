@@ -9,11 +9,6 @@
       "type": "string",
       "description": "URL or path of this schema. Used by editors for completion and validation; agent-gate ignores it."
     },
-    "base": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Git ref that Stop compares against, for example \"origin/main\". Stop checks every file changed since the merge-base with this ref, so commits made on the branch still count. Default: the remote's default branch (origin/HEAD). If it is set but git cannot find it, agent-gate exits with code 1 and does not block the agent."
-    },
     "maxOutputChars": {
       "type": "number",
       "exclusiveMinimum": 0,

@@ -141,10 +141,7 @@ interface World {
   /** `git merge-base <ref> HEAD` output. Unset = git cannot find one. */
   mergeBase?: string
   /** `git rev-parse HEAD` and `git rev-parse refs/stash`. Unset = the command fails (no commit / no stash). */
-  head?: string
   stash?: string
-  /** Changed files per `git diff` target. When set, a target that is not listed fails (unknown commit). */
-  diffs?: Record<string, string[]>
   /** Directory listings, by absolute path. */
   dirs?: Record<string, string[]>
   /** Result per full command line (argv joined by spaces), default exit 0. */
@@ -171,12 +168,10 @@ function stopWorld(world: World) {
         if (argv[1] === 'symbolic-ref') return world.originHead === undefined ? fail : ok(`${world.originHead}\n`)
         if (argv[1] === 'merge-base') return world.mergeBase === undefined ? fail : ok(`${world.mergeBase}\n`)
         if (argv[1] === 'rev-parse') {
-          const value = argv[argv.length - 1] === 'HEAD' ? world.head : world.stash
+          const value = world.stash
           return value === undefined ? { ...fail, exitCode: 1 } : ok(`${value}\n`)
         }
         if (argv[1] === 'diff') {
-          const target = argv[argv.length - 1]
-          if (world.diffs) return target in world.diffs ? ok(world.diffs[target].join('\0')) : fail
           return ok((world.changed ?? []).join('\0'))
         }
         return ok((world.untracked ?? []).join('\0'))
@@ -376,65 +371,37 @@ describe('runHook — stop: which files count as changed', () => {
   const files = { '/repo/agent-gate.json': stopConfig() }
   const diffCall = (w: ReturnType<typeof stopWorld>) => w.gitCalls().find((c) => c.startsWith('diff'))
 
-  it('diffs against HEAD when the repo has no origin/HEAD', async () => {
+  it('diffs against HEAD: only uncommitted files count', async () => {
     const w = stopWorld({ files, changed: ['a.ts'] })
     await runHook(stopRaw, ROOT, w.deps)
     expect(diffCall(w)).toBe('diff -z --name-only --relative --diff-filter=d HEAD')
   })
 
-  it('diffs against the merge-base with origin/HEAD, so committed work still counts', async () => {
-    const w = stopWorld({ files, originHead: 'origin/main', mergeBase: 'abc123', changed: ['src/a.ts'] })
-    const out = await runHook(stopRaw, ROOT, w.deps)
-    expect(w.gitCalls()).toContain('symbolic-ref --short refs/remotes/origin/HEAD')
-    expect(w.gitCalls()).toContain('merge-base origin/main HEAD')
-    expect(diffCall(w)).toBe('diff -z --name-only --relative --diff-filter=d abc123')
-    expect(out.exitCode).toBe(0)
-    expect(w.commandCalls()).toHaveLength(2)
-  })
-
-  it('blocks a rule violation in a file that is already committed on the branch', async () => {
-    const w = stopWorld({
-      files: { ...files, '/repo/src/core/x.ts': "import fs from 'fs'" },
-      originHead: 'origin/main',
-      mergeBase: 'abc123',
-      changed: ['src/core/x.ts'],
-    })
-    const out = await runHook(stopRaw, ROOT, w.deps)
-    expect(out.exitCode).toBe(2)
-    expect(out.stderr).toContain('src/core/x.ts:1:0 imports "fs"')
-  })
-
-  it('uses "base" from the config and skips auto-detection', async () => {
-    const config = stopConfig({ base: 'origin/develop' })
-    const w = stopWorld({
-      files: { '/repo/agent-gate.json': config },
-      originHead: 'origin/main',
-      mergeBase: 'def456',
-      changed: ['a.ts'],
-    })
+  it('never looks at the remote or the merge-base, even when origin/HEAD exists', async () => {
+    const w = stopWorld({ files, originHead: 'origin/main', mergeBase: 'abc123', changed: ['a.ts'] })
     await runHook(stopRaw, ROOT, w.deps)
-    expect(w.gitCalls()).toContain('merge-base origin/develop HEAD')
-    expect(w.gitCalls().some((c) => c.startsWith('symbolic-ref'))).toBe(false)
-    expect(diffCall(w)).toContain('def456')
+    expect(w.gitCalls().some((c) => c.startsWith('symbolic-ref') || c.startsWith('merge-base'))).toBe(false)
+    expect(diffCall(w)).toContain(' HEAD')
   })
 
-  it('exits 1 (non-blocking) when a configured base cannot be resolved', async () => {
-    const w = stopWorld({
-      files: { '/repo/agent-gate.json': stopConfig({ base: 'origin/nope' }) },
-      changed: ['a.ts'],
-    })
+  it('ignores a leftover "base" in the config', async () => {
+    const w = stopWorld({ files: { '/repo/agent-gate.json': stopConfig({ base: 'origin/develop' }) }, changed: ['a.ts'] })
     const out = await runHook(stopRaw, ROOT, w.deps)
-    expect(out.exitCode).toBe(1)
-    expect(out.stderr).toContain('origin/nope')
+    expect(out.exitCode).toBe(0)
+    expect(w.gitCalls().some((c) => c.startsWith('merge-base'))).toBe(false)
+  })
+
+  it('does not check a file that is already committed (not in the diff against HEAD)', async () => {
+    const w = stopWorld({ files: { ...files, '/repo/src/core/x.ts': "import fs from 'fs'" }, changed: [] })
+    expect(await runHook(stopRaw, ROOT, w.deps)).toEqual({ exitCode: 0, stdout: '', stderr: '' })
     expect(w.commandCalls()).toEqual([])
   })
 
-  it('falls back to HEAD when origin/HEAD exists but there is no merge-base (e.g. a shallow clone)', async () => {
-    const w = stopWorld({ files, originHead: 'origin/main', changed: ['a.ts'] })
+  it('blocks a rule violation in an uncommitted file', async () => {
+    const w = stopWorld({ files: { ...files, '/repo/src/core/x.ts': "import fs from 'fs'" }, changed: ['src/core/x.ts'] })
     const out = await runHook(stopRaw, ROOT, w.deps)
-    expect(out.exitCode).toBe(0)
-    expect(diffCall(w)).toContain(' HEAD')
-    expect(w.commandCalls()).toHaveLength(2)
+    expect(out.exitCode).toBe(2)
+    expect(out.stderr).toContain('src/core/x.ts:1:0 imports "fs"')
   })
 })
 
@@ -486,10 +453,9 @@ describe('runHook — session start', () => {
   const BASELINE = '/tmp/agent-gate/sess-1.json'
   const config = stopConfig()
 
-  it('saves head, stash and guard-file hashes, and prints nothing', async () => {
+  it('saves stash and guard-file hashes, and prints nothing', async () => {
     const w = stopWorld({
       files: { '/repo/agent-gate.json': config, '/repo/.kiro/hooks/a.json': '{"hooks":[]}' },
-      head: 'abc123',
       stash: 'beef',
       dirs: { '/repo/.kiro/hooks': ['a.json'] },
     })
@@ -497,7 +463,6 @@ describe('runHook — session start', () => {
     expect(out).toEqual({ exitCode: 0, stdout: '', stderr: '' })
     expect(w.writes).toEqual([BASELINE])
     expect(JSON.parse(w.store[BASELINE])).toEqual({
-      head: 'abc123',
       stash: 'beef',
       guard: {
         'agent-gate.json': hashContent(config),
@@ -509,53 +474,52 @@ describe('runHook — session start', () => {
   })
 
   it('stores hashes, never file contents', async () => {
-    const w = stopWorld({ files: { '/repo/.claude/settings.json': 'SECRET-TOKEN-123' }, head: 'a' })
+    const w = stopWorld({ files: { '/repo/.claude/settings.json': 'SECRET-TOKEN-123' } })
     await runHook(claudeStart('sess-1'), ROOT, w.deps)
     expect(w.store[BASELINE]).not.toContain('SECRET-TOKEN-123')
   })
 
-  it('records null for a repo without commits or a stash', async () => {
+  it('records null for a repo without a stash', async () => {
     const w = stopWorld({})
     await runHook(claudeStart('sess-1'), ROOT, w.deps)
     const saved = JSON.parse(w.store[BASELINE])
-    expect(saved.head).toBeNull()
     expect(saved.stash).toBeNull()
   })
 
   it('does not need agent-gate.json to exist', async () => {
-    const w = stopWorld({ head: 'a' })
+    const w = stopWorld({})
     expect((await runHook(claudeStart('sess-1'), ROOT, w.deps)).exitCode).toBe(0)
     expect(w.writes).toHaveLength(1)
   })
 
   it('replaces an older baseline on startup or resume', async () => {
-    const w = stopWorld({ head: 'new', files: { [BASELINE]: JSON.stringify({ head: 'old', stash: null, guard: {} }) } })
+    const w = stopWorld({ stash: 'new', files: { [BASELINE]: JSON.stringify({ stash: 'old', guard: {} }) } })
     await runHook(claudeStart('sess-1', 'resume'), ROOT, w.deps)
-    expect(JSON.parse(w.store[BASELINE]).head).toBe('new')
+    expect(JSON.parse(w.store[BASELINE]).stash).toBe('new')
   })
 
   it('keeps the existing baseline when the session is only being compacted', async () => {
-    const w = stopWorld({ head: 'new', files: { [BASELINE]: JSON.stringify({ head: 'old', stash: null, guard: {} }) } })
+    const w = stopWorld({ stash: 'new', files: { [BASELINE]: JSON.stringify({ stash: 'old', guard: {} }) } })
     await runHook(claudeStart('sess-1', 'compact'), ROOT, w.deps)
     expect(w.writes).toEqual([])
-    expect(JSON.parse(w.store[BASELINE]).head).toBe('old')
+    expect(JSON.parse(w.store[BASELINE]).stash).toBe('old')
   })
 
   it('still writes a baseline on compact when none exists yet', async () => {
-    const w = stopWorld({ head: 'a' })
+    const w = stopWorld({})
     await runHook(claudeStart('sess-1', 'compact'), ROOT, w.deps)
     expect(w.writes).toEqual([BASELINE])
   })
 
   it('does not write for a session id that is unsafe in a path', async () => {
-    const w = stopWorld({ head: 'a' })
+    const w = stopWorld({})
     const out = await runHook(claudeStart('../../etc/x'), ROOT, w.deps)
     expect(out.exitCode).toBe(0)
     expect(w.writes).toEqual([])
   })
 
   it('exits 1 (non-blocking) when the baseline cannot be written', async () => {
-    const w = stopWorld({ head: 'a' })
+    const w = stopWorld({})
     const deps: Deps = {
       ...w.deps,
       writeFile: () => {
@@ -568,7 +532,7 @@ describe('runHook — session start', () => {
   })
 
   it('works for Kiro, which sends no source', async () => {
-    const w = stopWorld({ head: 'a' })
+    const w = stopWorld({})
     const raw = JSON.stringify({ session_id: 'sess_9', hook_event_name: 'SessionStart', cwd: ROOT })
     const out = await runHook(raw, ROOT, w.deps, 'kiro')
     expect(out).toEqual({ exitCode: 0, stdout: '', stderr: '' })
@@ -585,14 +549,13 @@ describe('runHook — stop with a session baseline', () => {
     '.claude/settings.local.json': null,
   }
   const baseline = (over: object = {}) =>
-    JSON.stringify({ head: 'start123', stash: null, guard: guardHashes, ...over })
+    JSON.stringify({ stash: null, guard: guardHashes, ...over })
   const stopFor = (id?: string) =>
     JSON.stringify({ cwd: ROOT, hook_event_name: 'Stop', ...(id && { session_id: id }) })
 
   const world = (w: World = {}) =>
     stopWorld({
       files: { '/repo/agent-gate.json': config, [BASELINE]: baseline(), ...w.files },
-      head: 'start123',
       ...w,
       ...{ files: { '/repo/agent-gate.json': config, [BASELINE]: baseline(), ...w.files } },
     })
@@ -630,53 +593,15 @@ describe('runHook — stop with a session baseline', () => {
     expect(out.stderr).toContain('.kiro/hooks/evil.json')
   })
 
-  it('also checks files that were committed since the session started', async () => {
-    const w = world({
-      files: { '/repo/src/core/x.ts': "import fs from 'fs'" },
-      diffs: { HEAD: [], start123: ['src/core/x.ts'] },
-    })
-    const out = await runHook(stopFor('sess-1'), ROOT, w.deps)
-    expect(out.exitCode).toBe(2)
-    expect(out.stderr).toContain('src/core/x.ts:1:0 imports "fs"')
-    expect(w.gitCalls().filter((c) => c.startsWith('diff')).some((c) => c.endsWith(' start123'))).toBe(true)
-  })
-
-  it('checks only what changed since the session started, not the whole branch', async () => {
+  it('checks the uncommitted files only, even when a baseline exists', async () => {
     const config2 = stopConfig({ commands: [{ name: 'lint', run: ['lint', '{files}'] }] })
     const w = world({
       files: { '/repo/agent-gate.json': config2, [BASELINE]: baseline({ guard: { ...guardHashes, 'agent-gate.json': hashContent(config2) } }) },
-      diffs: { HEAD: ['a.ts', 'b.ts'], start123: ['b.ts', 'c.ts'] },
+      changed: ['a.ts', 'b.ts'],
     })
     await runHook(stopFor('sess-1'), ROOT, w.deps)
-    expect(w.commandCalls()).toEqual([['lint', 'b.ts', 'c.ts']])
-  })
-
-  it('ignores a violation committed on the branch before the session started', async () => {
-    const w = world({
-      files: { '/repo/src/core/old.ts': "import fs from 'fs'" },
-      originHead: 'origin/main',
-      mergeBase: 'base999',
-      diffs: { base999: ['src/core/old.ts'], start123: ['src/new.ts'] },
-    })
-    const out = await runHook(stopFor('sess-1'), ROOT, w.deps)
-    expect(out).toEqual({ exitCode: 0, stdout: '', stderr: '' })
-  })
-
-  it('falls back to the whole branch when the baseline commit no longer exists', async () => {
-    const w = world({
-      files: { '/repo/src/core/old.ts': "import fs from 'fs'" },
-      originHead: 'origin/main',
-      mergeBase: 'base999',
-      diffs: { base999: ['src/core/old.ts'] },
-    })
-    expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
-  })
-
-  it('ignores the session diff when the baseline commit no longer exists', async () => {
-    const w = world({ diffs: { HEAD: ['a.ts'] } })
-    const out = await runHook(stopFor('sess-1'), ROOT, w.deps)
-    expect(out.exitCode).toBe(0)
-    expect(w.commandCalls()).toHaveLength(2)
+    expect(w.commandCalls()).toEqual([['lint', 'a.ts', 'b.ts']])
+    expect(w.gitCalls().filter((c) => c.startsWith('diff'))).toEqual(['diff -z --name-only --relative --diff-filter=d HEAD'])
   })
 
   it('reports session problems together with rule violations and skips commands', async () => {

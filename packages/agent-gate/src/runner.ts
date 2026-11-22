@@ -56,58 +56,22 @@ const git = (args: string[], root: string, deps: Deps) =>
   deps.runCommand(['git', ...args], { cwd: root, timeoutMs: GIT_TIMEOUT_MS })
 
 /**
- * What to diff the working tree against. The merge-base with the base branch, so commits the
- * agent made on this branch still count as changed. An explicit `base` that cannot be resolved is
- * an error; an auto-detected one quietly falls back to HEAD (no origin, shallow clone).
+ * Files with changes that are not committed yet: the working tree against HEAD, plus untracked
+ * files. Committed work is not checked, so old problems on the branch never block the agent.
  */
-async function diffTarget(root: string, base: string | undefined, deps: Deps): Promise<string | { error: string }> {
-  let ref = base
-  if (ref === undefined) {
-    const head = await git(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], root, deps)
-    if (head.exitCode !== 0 || !head.stdout.trim()) return 'HEAD'
-    ref = head.stdout.trim()
-  }
-  const mergeBase = await git(['merge-base', ref, 'HEAD'], root, deps)
-  if (mergeBase.exitCode === 0 && mergeBase.stdout.trim()) return mergeBase.stdout.trim()
-  return base === undefined ? 'HEAD' : { error: `base "${base}" not found (git merge-base ${base} HEAD failed)` }
-}
-
-const listChanged = (target: string, root: string, deps: Deps) =>
-  git(['diff', '-z', '--name-only', '--relative', '--diff-filter=d', target], root, deps)
-const listUntracked = (root: string, deps: Deps) => git(['ls-files', '-z', '--others', '--exclude-standard'], root, deps)
-
-/**
- * Files changed in this session when a baseline exists: since the commit the session started at,
- * plus untracked files. Work committed on the branch before the session is not the agent's to fix.
- * Without a baseline, or when its commit no longer exists (rebased away), the whole branch counts:
- * since the merge-base with the base branch, so commits the agent made still count.
- * An explicit `base` that cannot be resolved is an error.
- */
-async function changedFiles(
-  root: string,
-  base: string | undefined,
-  sessionHead: string | null,
-  deps: Deps,
-): Promise<string[] | { error: string }> {
-  if (sessionHead !== null) {
-    const [session, untracked] = await Promise.all([listChanged(sessionHead, root, deps), listUntracked(root, deps)])
-    if (session.exitCode === 0) return parseGitFiles(session.stdout, untracked.exitCode === 0 ? untracked.stdout : '')
-  }
-
-  const target = await diffTarget(root, base, deps)
-  if (typeof target !== 'string') return target
-  const outcomes = await Promise.all([listChanged(target, root, deps), listUntracked(root, deps)])
+async function changedFiles(root: string, deps: Deps): Promise<string[] | { error: string }> {
+  const outcomes = await Promise.all([
+    git(['diff', '-z', '--name-only', '--relative', '--diff-filter=d', 'HEAD'], root, deps),
+    git(['ls-files', '-z', '--others', '--exclude-standard'], root, deps),
+  ])
   const listed = outcomes.filter((o) => o.exitCode === 0)
   if (listed.length === 0) return { error: 'could not list changed files (is this a git repository?)' }
   return parseGitFiles(...listed.map((o) => o.stdout))
 }
 
-/** HEAD, the top stash entry, and a hash of each file that controls the checks. */
+/** The top stash entry and a hash of each file that controls the checks. */
 async function takeSnapshot(root: string, deps: Deps): Promise<Snapshot> {
-  const [head, stash] = await Promise.all([
-    git(['rev-parse', '--verify', '-q', 'HEAD'], root, deps),
-    git(['rev-parse', '--verify', '-q', 'refs/stash'], root, deps),
-  ])
+  const stash = await git(['rev-parse', '--verify', '-q', 'refs/stash'], root, deps)
   const files = [
     ...GUARD_FILES,
     ...GUARD_DIRS.flatMap((dir) => (deps.listDir(path.join(root, dir)) ?? []).map((name) => `${dir}/${name}`)),
@@ -120,7 +84,7 @@ async function takeSnapshot(root: string, deps: Deps): Promise<Snapshot> {
   )
   const out = (o: { exitCode: number | null; stdout: string }) =>
     o.exitCode === 0 && o.stdout.trim() ? o.stdout.trim() : null
-  return { head: out(head), stash: out(stash), guard: guardHashes }
+  return { stash: out(stash), guard: guardHashes }
 }
 
 /** Saves what the repo looks like now, so Stop can tell what happened during the session. */
@@ -178,7 +142,7 @@ async function runStop(
   }
   const problems = baseline === null ? [] : tamperProblems(baseline, await takeSnapshot(root, deps))
 
-  const changed = await changedFiles(root, config.base, baseline?.head ?? null, deps)
+  const changed = await changedFiles(root, deps)
   if ('error' in changed) return failure(changed.error)
   if (changed.length === 0 && problems.length === 0) return settle({ action: 'allow' })
 

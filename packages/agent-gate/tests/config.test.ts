@@ -118,17 +118,11 @@ describe('parseConfig', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('accepts a base ref', () => {
-    const result = parseConfig('{"base":"origin/develop"}')
-    expect(result).toEqual({
+  it('ignores a leftover "base" from an older version', () => {
+    expect(parseConfig('{"base":"origin/develop"}')).toEqual({
       ok: true,
-      config: { rules: [], commands: [], maxOutputChars: 4000, base: 'origin/develop' },
+      config: { rules: [], commands: [], maxOutputChars: 4000 },
     })
-  })
-
-  it('reports a base that is not a non-empty string', () => {
-    expect(parseConfig('{"base":""}')).toEqual({ ok: false, errors: ['"base" must be a non-empty string'] })
-    expect(parseConfig('{"base":3}')).toEqual({ ok: false, errors: ['"base" must be a non-empty string'] })
   })
 
   it('rejects an array, a string, and null as the config', () => {
