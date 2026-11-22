@@ -29,6 +29,14 @@ describe('checkFiles', () => {
     ])
   })
 
+  it('copies the rule fix onto each violation', () => {
+    const violations = checkFiles(
+      [{ path: 'src/core/x.ts', source: "import fs from 'fs'" }],
+      [{ ...rule, fix: 'move I/O to the shell' }],
+    )
+    expect(violations[0]?.fix).toBe('move I/O to the shell')
+  })
+
   it('treats node: prefixed modules as the same module', () => {
     const violations = checkFiles(
       [{ path: 'src/core/x.ts', source: "import fs from 'node:fs'" }],

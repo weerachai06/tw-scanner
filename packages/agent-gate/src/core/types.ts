@@ -12,6 +12,8 @@ export interface Rule {
   files: string[]
   ignore?: string[]
   message: string
+  /** How to fix a violation. Shown after the message. Keep it to one or two sentences. */
+  fix?: string
   forbidImports?: string[]
   /** Names may be globs, e.g. `use*`. `from` also matches subpaths (`react/x`). */
   forbidImportNames?: { from: string; names: string[] }[]
@@ -69,6 +71,7 @@ export interface Violation {
   col: number
   found: string
   message: string
+  fix?: string
 }
 
 export type Decision =

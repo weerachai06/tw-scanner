@@ -30,6 +30,7 @@ function checkFile(file: SourceFile, rules: Rule[]): Violation[] {
     col,
     found,
     message: rule.message,
+    ...(rule.fix && { fix: rule.fix }),
   })
 
   const imports = extractImports(file.source, file.path)

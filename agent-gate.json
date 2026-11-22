@@ -5,7 +5,7 @@
       "files": ["packages/*/src/core/**/*.ts", "packages/tw-scanner/src/extractor.ts"],
       "forbidImports": ["fs", "child_process", "net", "http", "https"],
       "forbidImportNames": [{ "from": "react", "names": ["use*"] }],
-      "forbidGlobals": ["fetch", "process"],
+      "forbidGlobals": ["fetch", "process", "Date"],
       "message": "Core must be pure (CLAUDE.md: scanner owns I/O, extractor is pure). Move I/O to the shell."
     }
   ],

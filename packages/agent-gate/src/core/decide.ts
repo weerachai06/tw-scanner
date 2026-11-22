@@ -1,6 +1,13 @@
+import { hintFor } from './hints.js'
 import type { CommandFailure, Decision, Violation } from './types.js'
 
 function violationLine(v: Violation): string {
+  const line = violationText(v)
+  const fix = v.fix ?? hintFor(v)
+  return fix ? `${line} Fix: ${fix}` : line
+}
+
+function violationText(v: Violation): string {
   const where = `[${v.ruleId}] ${v.file}:${v.line}:${v.col}`
   switch (v.kind) {
     case 'parse-error':

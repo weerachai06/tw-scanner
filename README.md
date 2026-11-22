@@ -8,7 +8,7 @@ Detects invalid, renamed, or missing classes after design token / plugin migrati
 Run directly without installing:
 
 ```bash
-npx @weerachai06/tw-scanner --src ./src --css ./src/globals.css
+npx --yes @weerachai06/tw-scanner --src ./src --css ./src/globals.css
 ```
 
 Or install globally:
@@ -40,13 +40,13 @@ tw-scanner --src ./src --css ./src/globals.css
 
 ```bash
 # Basic scan
-npx @weerachai06/tw-scanner --src ./src --css ./src/globals.css
+npx --yes @weerachai06/tw-scanner --src ./src --css ./src/globals.css
 
 # With verbose context + save report
-npx @weerachai06/tw-scanner --src ./src --css ./src/globals.css --verbose --output report.json
+npx --yes @weerachai06/tw-scanner --src ./src --css ./src/globals.css --verbose --output report.json
 
 # CI mode (exits with code 1 if invalid classes found)
-npx @weerachai06/tw-scanner --src ./src --css ./src/globals.css --json | jq '.invalid | length'
+npx --yes @weerachai06/tw-scanner --src ./src --css ./src/globals.css --json | jq '.invalid | length'
 ```
 
 ## What it detects
