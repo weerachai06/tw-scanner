@@ -78,14 +78,35 @@ describe('parseClaudeInput', () => {
   it('maps Stop and carries stop_hook_active as retry', () => {
     expect(
       parseClaudeInput(payload({ hook_event_name: 'Stop', stop_hook_active: true })),
-    ).toEqual({ kind: 'stop', agent: 'claude', cwd: '/repo', retry: true })
+    ).toEqual({ kind: 'stop', agent: 'claude', cwd: '/repo', retry: true, sessionId: 's' })
     expect(
       parseClaudeInput(payload({ hook_event_name: 'Stop' })),
-    ).toEqual({ kind: 'stop', agent: 'claude', cwd: '/repo', retry: false })
+    ).toEqual({ kind: 'stop', agent: 'claude', cwd: '/repo', retry: false, sessionId: 's' })
+  })
+
+  it('maps SessionStart with its session id and source', () => {
+    expect(
+      parseClaudeInput(payload({ hook_event_name: 'SessionStart', session_id: 'abc-1', source: 'startup' })),
+    ).toEqual({ kind: 'session-start', agent: 'claude', cwd: '/repo', sessionId: 'abc-1', source: 'startup' })
+  })
+
+  it('maps SessionStart without a source', () => {
+    const event = parseClaudeInput(payload({ hook_event_name: 'SessionStart' }))
+    expect(event).toEqual({ kind: 'session-start', agent: 'claude', cwd: '/repo', sessionId: 's' })
+  })
+
+  it('ignores SessionStart without a session id', () => {
+    const raw = JSON.stringify({ cwd: '/repo', hook_event_name: 'SessionStart' })
+    expect(parseClaudeInput(raw).kind).toBe('ignored')
+  })
+
+  it('maps Stop without a session id', () => {
+    const raw = JSON.stringify({ cwd: '/repo', hook_event_name: 'Stop' })
+    expect(parseClaudeInput(raw)).toEqual({ kind: 'stop', agent: 'claude', cwd: '/repo', retry: false })
   })
 
   it('ignores unknown events', () => {
-    expect(parseClaudeInput(payload({ hook_event_name: 'SessionStart' })).kind).toBe('ignored')
+    expect(parseClaudeInput(payload({ hook_event_name: 'SubagentStop' })).kind).toBe('ignored')
   })
 
   it('ignores invalid JSON instead of throwing', () => {

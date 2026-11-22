@@ -1,13 +1,14 @@
 import * as path from 'path'
+import { baselinePath, hashContent, parseBaseline, tamperProblems } from './core/baseline.js'
 import { formatClaudeOutput, parseClaudeInput } from './core/claude.js'
 import { parseConfig } from './core/config.js'
 import { decide } from './core/decide.js'
-import { guard } from './core/guard.js'
+import { GUARD_DIRS, GUARD_FILES, guard } from './core/guard.js'
 import { formatKiroOutput, parseKiroInput } from './core/kiro.js'
 import { checkFiles, type SourceFile } from './core/rules.js'
 import { parseGitFiles, planCommands, selectFiles, toRelative } from './core/scope.js'
 import { summarizeOutput } from './core/summarize.js'
-import type { Agent, AgentOutput, CommandFailure, Config, Decision, HookEvent } from './core/types.js'
+import type { Agent, AgentOutput, CommandFailure, Config, Decision, HookEvent, Snapshot } from './core/types.js'
 import type { RunCommand } from './exec.js'
 
 export const CONFIG_FILE = 'agent-gate.json'
@@ -18,7 +19,13 @@ const REPRODUCE_MAX_CHARS = 200
 /** I/O is injected so tests need no filesystem or processes. readFile returns null when missing. */
 export interface Deps {
   readFile(file: string): string | null
+  /** Creates missing folders. Throws when it cannot write. */
+  writeFile(file: string, content: string): void
+  /** Names in a folder, or null when it does not exist. */
+  listDir(dir: string): string[] | null
   runCommand: RunCommand
+  /** Where per-session baselines are kept. */
+  tmpDir: string
 }
 
 const adapters: Record<
@@ -45,31 +52,111 @@ function readSources(relPaths: string[], root: string, deps: Deps): SourceFile[]
   })
 }
 
-/** Files changed since HEAD plus untracked ones, relative to root. null if git is unusable. */
-async function changedFiles(root: string, deps: Deps): Promise<string[] | null> {
-  const opts = { cwd: root, timeoutMs: GIT_TIMEOUT_MS }
-  const [diff, untracked] = await Promise.all([
-    deps.runCommand(['git', 'diff', '--name-only', '--relative', '--diff-filter=d', 'HEAD'], opts),
-    deps.runCommand(['git', 'ls-files', '--others', '--exclude-standard'], opts),
+const git = (args: string[], root: string, deps: Deps) =>
+  deps.runCommand(['git', ...args], { cwd: root, timeoutMs: GIT_TIMEOUT_MS })
+
+/**
+ * What to diff the working tree against. The merge-base with the base branch, so commits the
+ * agent made on this branch still count as changed. An explicit `base` that cannot be resolved is
+ * an error; an auto-detected one quietly falls back to HEAD (no origin, shallow clone).
+ */
+async function diffTarget(root: string, base: string | undefined, deps: Deps): Promise<string | { error: string }> {
+  let ref = base
+  if (ref === undefined) {
+    const head = await git(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], root, deps)
+    if (head.exitCode !== 0 || !head.stdout.trim()) return 'HEAD'
+    ref = head.stdout.trim()
+  }
+  const mergeBase = await git(['merge-base', ref, 'HEAD'], root, deps)
+  if (mergeBase.exitCode === 0 && mergeBase.stdout.trim()) return mergeBase.stdout.trim()
+  return base === undefined ? 'HEAD' : { error: `base "${base}" not found (git merge-base ${base} HEAD failed)` }
+}
+
+/**
+ * Files changed since the diff target and, when a session baseline exists, since the commit the
+ * session started at (so commits made without a remote are still seen), plus untracked files.
+ */
+async function changedFiles(
+  root: string,
+  base: string | undefined,
+  sessionHead: string | null,
+  deps: Deps,
+): Promise<string[] | { error: string }> {
+  const target = await diffTarget(root, base, deps)
+  if (typeof target !== 'string') return target
+
+  const targets = sessionHead !== null && sessionHead !== target ? [target, sessionHead] : [target]
+  const outcomes = await Promise.all([
+    ...targets.map((t) => git(['diff', '-z', '--name-only', '--relative', '--diff-filter=d', t], root, deps)),
+    git(['ls-files', '-z', '--others', '--exclude-standard'], root, deps),
   ])
-  if (diff.exitCode !== 0 && untracked.exitCode !== 0) return null
-  return parseGitFiles(
-    diff.exitCode === 0 ? diff.stdout : '',
-    untracked.exitCode === 0 ? untracked.stdout : '',
+  // A target that no longer exists (rebased away, garbage collected) is skipped, not fatal.
+  const listed = outcomes.filter((o) => o.exitCode === 0)
+  if (listed.length === 0) return { error: 'could not list changed files (is this a git repository?)' }
+  return parseGitFiles(...listed.map((o) => o.stdout))
+}
+
+/** HEAD, the top stash entry, and a hash of each file that controls the checks. */
+async function takeSnapshot(root: string, deps: Deps): Promise<Snapshot> {
+  const [head, stash] = await Promise.all([
+    git(['rev-parse', '--verify', '-q', 'HEAD'], root, deps),
+    git(['rev-parse', '--verify', '-q', 'refs/stash'], root, deps),
+  ])
+  const files = [
+    ...GUARD_FILES,
+    ...GUARD_DIRS.flatMap((dir) => (deps.listDir(path.join(root, dir)) ?? []).map((name) => `${dir}/${name}`)),
+  ]
+  const guardHashes = Object.fromEntries(
+    files.map((f) => {
+      const content = deps.readFile(path.join(root, f))
+      return [f, content === null ? null : hashContent(content)]
+    }),
   )
+  const out = (o: { exitCode: number | null; stdout: string }) =>
+    o.exitCode === 0 && o.stdout.trim() ? o.stdout.trim() : null
+  return { head: out(head), stash: out(stash), guard: guardHashes }
+}
+
+/** Saves what the repo looks like now, so Stop can tell what happened during the session. */
+async function startSession(
+  event: Extract<HookEvent, { kind: 'session-start' }>,
+  root: string,
+  deps: Deps,
+  format: Format,
+): Promise<AgentOutput> {
+  const file = baselinePath(deps.tmpDir, event.sessionId)
+  if (file === null) return format({ action: 'allow' })
+  // A compaction restarts the session mid-way: keep the baseline from the real start.
+  if (event.source === 'compact' && deps.readFile(file) !== null) return format({ action: 'allow' })
+  try {
+    deps.writeFile(file, JSON.stringify(await takeSnapshot(root, deps)))
+  } catch (e) {
+    return failure(`could not save the session baseline: ${(e as Error).message}`)
+  }
+  return format({ action: 'allow' })
 }
 
 type Format = (decision: Decision) => AgentOutput
 
-async function runStop(root: string, config: Config, deps: Deps, format: Format): Promise<AgentOutput> {
-  const changed = await changedFiles(root, deps)
-  if (changed === null) return failure('could not list changed files (is this a git repository?)')
-  if (changed.length === 0) return format({ action: 'allow' })
+async function runStop(
+  root: string,
+  config: Config,
+  deps: Deps,
+  format: Format,
+  sessionId: string | undefined,
+): Promise<AgentOutput> {
+  const file = sessionId === undefined ? null : baselinePath(deps.tmpDir, sessionId)
+  const baseline = file === null ? null : parseBaseline(deps.readFile(file))
+  const problems = baseline === null ? [] : tamperProblems(baseline, await takeSnapshot(root, deps))
+
+  const changed = await changedFiles(root, config.base, baseline?.head ?? null, deps)
+  if ('error' in changed) return failure(changed.error)
+  if (changed.length === 0 && problems.length === 0) return format({ action: 'allow' })
 
   // Cheap checks first: rules are pure, so a broken rule skips the slow commands.
   const covered = selectFiles(changed, config.rules.flatMap((r) => r.files))
   const violations = checkFiles(readSources(covered, root, deps), config.rules)
-  if (violations.length > 0) return format(decide(violations))
+  if (problems.length + violations.length > 0) return format(decide(violations, [], problems))
 
   const failures: CommandFailure[] = []
   for (const plan of planCommands(config.commands, changed)) {
@@ -103,6 +190,8 @@ export async function runHook(
     return format(guard(relative))
   }
 
+  if (event.kind === 'session-start') return startSession(event, root, deps, format)
+
   if (event.kind !== 'edit' && event.kind !== 'stop') return format({ action: 'allow' })
 
   const configSource = deps.readFile(path.join(root, CONFIG_FILE))
@@ -110,7 +199,7 @@ export async function runHook(
   const parsed = parseConfig(configSource)
   if (!parsed.ok) return failure(`invalid ${CONFIG_FILE}:\n${parsed.errors.join('\n')}`)
 
-  if (event.kind === 'stop') return runStop(root, parsed.config, deps, format)
+  if (event.kind === 'stop') return runStop(root, parsed.config, deps, format, event.sessionId)
 
   const rel = event.files.flatMap((f) => toRelative(f, root) ?? [])
   return format(decide(checkFiles(readSources(rel, root, deps), parsed.config.rules)))

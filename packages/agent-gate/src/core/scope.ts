@@ -10,27 +10,52 @@ export function toRelative(file: string, root: string): string | null {
 
 const DEFAULT_TIMEOUT_SEC = 120
 
-/** Merges `git diff --name-only` and `git ls-files --others` output into one list. */
+// Well under the OS limit for one command line (about 1 MB on macOS, 2 MB on Linux).
+const MAX_ARGS_CHARS = 100_000
+
+/** Merges `git diff -z --name-only` and `git ls-files -z` output (NUL-separated, never quoted). */
 export function parseGitFiles(...outputs: string[]): string[] {
-  const lines = outputs.flatMap((o) => o.split('\n')).filter(Boolean)
-  return [...new Set(lines)]
+  const names = outputs.flatMap((o) => o.split('\0')).filter(Boolean)
+  return [...new Set(names)]
+}
+
+/** Splits `files` into groups whose joined length stays within `maxChars`; a longer path gets its own. */
+function batch(files: string[], maxChars: number): string[][] {
+  const groups: string[][] = []
+  let current: string[] = []
+  let size = 0
+  for (const f of files) {
+    if (current.length > 0 && size + f.length + 1 > maxChars) {
+      groups.push(current)
+      current = []
+      size = 0
+    }
+    current.push(f)
+    size += f.length + 1
+  }
+  if (current.length > 0) groups.push(current)
+  return groups
 }
 
 export function selectFiles(files: string[], globs: string[]): string[] {
   return files.filter((f) => globs.some((g) => minimatch(f, g, { dot: true })))
 }
 
-/** Picks the commands worth running for `changed` and expands `{files}`. */
-export function planCommands(commands: CommandSpec[], changed: string[]): PlannedCommand[] {
+/**
+ * Picks the commands worth running for `changed` and expands `{files}`. A long file list becomes
+ * several runs of the same command, so it never exceeds the OS limit on a command line.
+ */
+export function planCommands(
+  commands: CommandSpec[],
+  changed: string[],
+  maxArgsChars = MAX_ARGS_CHARS,
+): PlannedCommand[] {
   return commands.flatMap((c) => {
     const files = c.files ? selectFiles(changed, c.files) : changed
     if (files.length === 0) return []
-    return [
-      {
-        name: c.name,
-        argv: c.run.flatMap((arg) => (arg === '{files}' ? files : [arg])),
-        timeoutSec: c.timeoutSec ?? DEFAULT_TIMEOUT_SEC,
-      },
-    ]
+    const timeoutSec = c.timeoutSec ?? DEFAULT_TIMEOUT_SEC
+    const expand = (group: string[]) => c.run.flatMap((arg) => (arg === '{files}' ? group : [arg]))
+    if (!c.run.includes('{files}')) return [{ name: c.name, argv: c.run, timeoutSec }]
+    return batch(files, maxArgsChars).map((group) => ({ name: c.name, argv: expand(group), timeoutSec }))
   })
 }

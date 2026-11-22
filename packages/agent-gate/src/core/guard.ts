@@ -2,12 +2,10 @@ import { minimatch } from 'minimatch'
 import type { Decision } from './types.js'
 
 // Files that make the checks run. An agent that can edit them can switch the checks off.
-const PROTECTED = [
-  'agent-gate.json',
-  '.claude/settings.json',
-  '.claude/settings.local.json',
-  '.kiro/hooks/**',
-]
+export const GUARD_FILES = ['agent-gate.json', '.claude/settings.json', '.claude/settings.local.json']
+export const GUARD_DIRS = ['.kiro/hooks']
+
+const PROTECTED = [...GUARD_FILES, ...GUARD_DIRS.map((d) => `${d}/**`)]
 
 /** `files` are relative to the repo root. */
 export function guard(files: string[]): Decision {

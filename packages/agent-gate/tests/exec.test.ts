@@ -38,4 +38,14 @@ describe('runCommand', () => {
     })
     expect(out.stdout.trim()).toBe('/')
   })
+
+  it('reports an argument list that is too long instead of throwing', async () => {
+    const out = await runCommand([process.execPath, '-e', '0', 'x'.repeat(4_000_000)], {
+      cwd: process.cwd(),
+      timeoutMs: 5000,
+    })
+    expect(out.exitCode).toBeNull()
+    expect(out.timedOut).toBe(false)
+    expect(out.stderr).toContain('E2BIG')
+  })
 })

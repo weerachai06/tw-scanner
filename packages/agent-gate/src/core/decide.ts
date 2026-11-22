@@ -20,13 +20,18 @@ function failureLines(f: CommandFailure): string[] {
 }
 
 /** A command that timed out or could not start is a warning: it must not trap the agent. */
-export function decide(violations: Violation[], failures: CommandFailure[] = []): Decision {
+export function decide(
+  violations: Violation[],
+  failures: CommandFailure[] = [],
+  /** Session problems, already worded (a stash, an edited guard file). */
+  problems: string[] = [],
+): Decision {
   const failed = failures.filter((f) => f.exitCode !== null)
-  const n = violations.length + failed.length
+  const n = problems.length + violations.length + failed.length
 
   if (n > 0) {
     const head = `agent-gate: ${n} ${n === 1 ? 'problem' : 'problems'} in files you changed. Fix ${n === 1 ? 'it' : 'them'}, then finish.`
-    const body = [...violations.map(violationLine), ...failed.flatMap(failureLines)]
+    const body = [...problems, ...violations.map(violationLine), ...failed.flatMap(failureLines)]
     return { action: 'block', reason: [head, ...body].join('\n') }
   }
 

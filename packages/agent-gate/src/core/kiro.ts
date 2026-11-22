@@ -22,7 +22,16 @@ export function parseKiroInput(raw: string): HookEvent {
 
   const cwd: string = data.cwd
 
-  if (data.hook_event_name === 'Stop') return { kind: 'stop', agent: 'kiro', cwd, retry: false }
+  const sessionId = typeof data.session_id === 'string' ? data.session_id : undefined
+
+  if (data.hook_event_name === 'SessionStart') {
+    if (sessionId === undefined) return ignored('SessionStart payload has no session_id')
+    return { kind: 'session-start', agent: 'kiro', cwd, sessionId }
+  }
+
+  if (data.hook_event_name === 'Stop') {
+    return { kind: 'stop', agent: 'kiro', cwd, retry: false, ...(sessionId && { sessionId }) }
+  }
 
   if (data.hook_event_name === 'PreToolUse') {
     const tool = data.tool_name

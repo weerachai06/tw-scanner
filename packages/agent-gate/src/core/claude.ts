@@ -19,8 +19,22 @@ export function parseClaudeInput(raw: string): HookEvent {
 
   const cwd: string = data.cwd
 
+  const sessionId = typeof data.session_id === 'string' ? data.session_id : undefined
+
+  if (data.hook_event_name === 'SessionStart') {
+    if (sessionId === undefined) return ignored('SessionStart payload has no session_id')
+    const source = typeof data.source === 'string' ? data.source : undefined
+    return { kind: 'session-start', agent: 'claude', cwd, sessionId, ...(source && { source }) }
+  }
+
   if (data.hook_event_name === 'Stop') {
-    return { kind: 'stop', agent: 'claude', cwd, retry: data.stop_hook_active === true }
+    return {
+      kind: 'stop',
+      agent: 'claude',
+      cwd,
+      retry: data.stop_hook_active === true,
+      ...(sessionId && { sessionId }),
+    }
   }
 
   if (data.hook_event_name === 'PostToolUse' || data.hook_event_name === 'PreToolUse') {

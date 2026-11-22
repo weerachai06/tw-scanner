@@ -101,3 +101,28 @@ describe('decide — command failures', () => {
     expect(decision.action).toBe('block')
   })
 })
+
+describe('decide — session problems', () => {
+  const problem = '[session] git stash changed during this session. Restore it.'
+
+  it('blocks on a session problem and prints it verbatim', () => {
+    const decision = decide([], [], [problem])
+    expect(decision.action).toBe('block')
+    if (decision.action === 'block') {
+      expect(decision.reason).toContain('agent-gate: 1 problem in files you changed.')
+      expect(decision.reason).toContain(problem)
+    }
+  })
+
+  it('counts session problems with violations and failures, session problems first', () => {
+    const decision = decide([v()], [failure()], [problem])
+    expect(decision.action === 'block' && decision.reason).toContain('3 problems')
+    const reason = decision.action === 'block' ? decision.reason : ''
+    expect(reason.indexOf(problem)).toBeLessThan(reason.indexOf('[fcis-core-pure]'))
+  })
+
+  it('does not turn a timeout into a block just because there are no problems', () => {
+    expect(decide([], [failure({ exitCode: null, timedOut: true })], []).action).toBe('warn')
+  })
+})
+

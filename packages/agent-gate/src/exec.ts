@@ -15,9 +15,16 @@ export const runCommand: RunCommand = (argv, { cwd, timeoutMs }) =>
     let timedOut = false
     let settled = false
 
-    const child = spawn(cmd, args, { cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
-    child.stdout.on('data', (d) => (stdout += d))
-    child.stderr.on('data', (d) => (stderr += d))
+    let child: ReturnType<typeof spawn>
+    try {
+      child = spawn(cmd, args, { cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    } catch (err) {
+      // e.g. E2BIG (argument list too long) is thrown, not emitted as an 'error' event
+      resolve({ exitCode: null, stdout: '', stderr: (err as Error).message, timedOut: false })
+      return
+    }
+    child.stdout!.on('data', (d) => (stdout += d))
+    child.stderr!.on('data', (d) => (stderr += d))
 
     const timer = setTimeout(() => {
       timedOut = true

@@ -117,4 +117,37 @@ describe('parseConfig', () => {
     const result = parseConfig(JSON.stringify({ rules: [{ ...rule, forbidImportNames: {} }] }))
     expect(result.ok).toBe(false)
   })
+
+  it('accepts a base ref', () => {
+    const result = parseConfig('{"base":"origin/develop"}')
+    expect(result).toEqual({
+      ok: true,
+      config: { rules: [], commands: [], maxOutputChars: 4000, base: 'origin/develop' },
+    })
+  })
+
+  it('reports a base that is not a non-empty string', () => {
+    expect(parseConfig('{"base":""}')).toEqual({ ok: false, errors: ['"base" must be a non-empty string'] })
+    expect(parseConfig('{"base":3}')).toEqual({ ok: false, errors: ['"base" must be a non-empty string'] })
+  })
+
+  it('rejects an array, a string, and null as the config', () => {
+    for (const raw of ['[]', '[1]', '"x"', 'null', '3']) {
+      expect(parseConfig(raw)).toEqual({ ok: false, errors: ['config must be an object'] })
+    }
+  })
+
+  it('does not treat null as a missing field', () => {
+    expect(parseConfig('{"rules":null}')).toEqual({ ok: false, errors: ['"rules" must be an array'] })
+    expect(parseConfig('{"commands":null}')).toEqual({ ok: false, errors: ['"commands" must be an array'] })
+    expect(parseConfig('{"maxOutputChars":null}')).toEqual({
+      ok: false,
+      errors: ['"maxOutputChars" must be a positive number'],
+    })
+  })
+
+  it('ignores $schema and other keys it does not know', () => {
+    const result = parseConfig('{"$schema":"https://example.com/s.json","whatever":1}')
+    expect(result).toEqual({ ok: true, config: { rules: [], commands: [], maxOutputChars: 4000 } })
+  })
 })

@@ -49,7 +49,25 @@ describe('parseKiroInput', () => {
 
   it('maps Stop (it has no retry flag)', () => {
     const raw = JSON.stringify({ session_id: 's', hook_event_name: 'Stop', cwd: CWD })
-    expect(parseKiroInput(raw)).toEqual({ kind: 'stop', agent: 'kiro', cwd: CWD, retry: false })
+    expect(parseKiroInput(raw)).toEqual({ kind: 'stop', agent: 'kiro', cwd: CWD, retry: false, sessionId: 's' })
+  })
+
+  it('maps SessionStart (captured: session_id, hook_event_name, cwd; no source)', () => {
+    const raw = JSON.stringify({ session_id: 'sess_59b4dcfc-af67', hook_event_name: 'SessionStart', cwd: CWD })
+    expect(parseKiroInput(raw)).toEqual({ kind: 'session-start', agent: 'kiro', cwd: CWD, sessionId: 'sess_59b4dcfc-af67' })
+  })
+
+  it('ignores SessionStart without a session id', () => {
+    expect(parseKiroInput(JSON.stringify({ hook_event_name: 'SessionStart', cwd: CWD })).kind).toBe('ignored')
+  })
+
+  it('maps Stop without a session id', () => {
+    expect(parseKiroInput(JSON.stringify({ hook_event_name: 'Stop', cwd: CWD }))).toEqual({
+      kind: 'stop',
+      agent: 'kiro',
+      cwd: CWD,
+      retry: false,
+    })
   })
 
   it('ignores PreToolUse from tools that are not file writes', () => {
@@ -64,7 +82,7 @@ describe('parseKiroInput', () => {
     expect(parseKiroInput('nope').kind).toBe('ignored')
     expect(parseKiroInput('null').kind).toBe('ignored')
     expect(parseKiroInput(JSON.stringify({ hook_event_name: 'Stop' })).kind).toBe('ignored')
-    expect(parseKiroInput(JSON.stringify({ hook_event_name: 'SessionStart', cwd: CWD })).kind).toBe('ignored')
+    expect(parseKiroInput(JSON.stringify({ hook_event_name: 'SubagentStop', cwd: CWD })).kind).toBe('ignored')
   })
 })
 

@@ -24,8 +24,12 @@ describe('toRelative', () => {
 })
 
 describe('parseGitFiles', () => {
-  it('merges outputs, drops blanks and duplicates', () => {
-    expect(parseGitFiles('a.ts\nb.ts\n', 'b.ts\nc.ts\n\n')).toEqual(['a.ts', 'b.ts', 'c.ts'])
+  it('merges NUL-separated outputs, drops blanks and duplicates', () => {
+    expect(parseGitFiles('a.ts\0b.ts\0', 'b.ts\0c.ts\0\0')).toEqual(['a.ts', 'b.ts', 'c.ts'])
+  })
+
+  it('keeps non-ASCII names and names with newlines or quotes as they are', () => {
+    expect(parseGitFiles('src/สวัสดี.ts\0we"ird\nname.ts\0', '')).toEqual(['src/สวัสดี.ts', 'we"ird\nname.ts'])
   })
 
   it('returns nothing for empty output', () => {
@@ -71,5 +75,30 @@ describe('planCommands', () => {
       changed,
     )
     expect(plan.map((p) => p.name)).toEqual(['one', 'two'])
+  })
+})
+
+describe('planCommands — batching {files}', () => {
+  const many = Array.from({ length: 50 }, (_, i) => `src/dir/file-${String(i).padStart(3, '0')}.ts`)
+
+  it('splits {files} into several runs when the list is too long, keeping order and every file', () => {
+    const plan = planCommands([{ name: 'lint', run: ['eslint', '{files}'] }], many, 200)
+    expect(plan.length).toBeGreaterThan(1)
+    expect(plan.every((p) => p.name === 'lint' && p.argv[0] === 'eslint')).toBe(true)
+    expect(plan.flatMap((p) => p.argv.slice(1))).toEqual(many)
+    for (const p of plan) expect(p.argv.slice(1).join(' ').length).toBeLessThanOrEqual(200)
+  })
+
+  it('keeps one run when the list fits', () => {
+    expect(planCommands([{ name: 'lint', run: ['eslint', '{files}'] }], many, 100_000)).toHaveLength(1)
+  })
+
+  it('gives a path longer than the budget its own run instead of dropping it', () => {
+    const plan = planCommands([{ name: 'x', run: ['x', '{files}'] }], ['a'.repeat(300), 'b.ts'], 100)
+    expect(plan.flatMap((p) => p.argv.slice(1))).toEqual(['a'.repeat(300), 'b.ts'])
+  })
+
+  it('never splits a command that does not use {files}', () => {
+    expect(planCommands([{ name: 't', run: ['bun', 'test'] }], many, 10)).toHaveLength(1)
   })
 })

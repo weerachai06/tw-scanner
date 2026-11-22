@@ -63,16 +63,20 @@ export function parseConfig(raw: string): ConfigResult {
   } catch (e) {
     return { ok: false, errors: [`invalid JSON: ${(e as Error).message}`] }
   }
-  if (!data || typeof data !== 'object') return { ok: false, errors: ['config must be an object'] }
+  if (!data || typeof data !== 'object' || Array.isArray(data))
+    return { ok: false, errors: ['config must be an object'] }
 
-  const rules = data.rules ?? []
-  const commands = data.commands ?? []
-  const maxOutputChars = data.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS
+  // Only a missing field falls back to its default; null is a mistake, not "missing".
+  const rules = data.rules === undefined ? [] : data.rules
+  const commands = data.commands === undefined ? [] : data.commands
+  const maxOutputChars = data.maxOutputChars === undefined ? DEFAULT_MAX_OUTPUT_CHARS : data.maxOutputChars
 
   if (!Array.isArray(rules)) return { ok: false, errors: ['"rules" must be an array'] }
   if (!Array.isArray(commands)) return { ok: false, errors: ['"commands" must be an array'] }
   if (!isPositive(maxOutputChars))
     return { ok: false, errors: ['"maxOutputChars" must be a positive number'] }
+  if (data.base !== undefined && !isNonEmptyString(data.base))
+    return { ok: false, errors: ['"base" must be a non-empty string'] }
 
   const errors = [
     ...rules.flatMap((r: unknown, i: number) => validateRule(r, i)),
@@ -81,6 +85,11 @@ export function parseConfig(raw: string): ConfigResult {
   if (errors.length) return { ok: false, errors }
   return {
     ok: true,
-    config: { rules: rules as Rule[], commands: commands as CommandSpec[], maxOutputChars },
+    config: {
+      rules: rules as Rule[],
+      commands: commands as CommandSpec[],
+      maxOutputChars,
+      ...(data.base !== undefined && { base: data.base as string }),
+    },
   }
 }
