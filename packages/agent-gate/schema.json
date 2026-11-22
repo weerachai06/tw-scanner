@@ -1,0 +1,142 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "agent-gate configuration",
+  "description": "Configuration for @weerachai06/agent-gate, read from agent-gate.json at the repo root. Every field is optional.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL or path of this schema. Used by editors for completion and validation; agent-gate ignores it."
+    },
+    "base": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Git ref that Stop compares against, for example \"origin/main\". Stop checks every file changed since the merge-base with this ref, so commits made on the branch still count. Default: the remote's default branch (origin/HEAD). If it is set but git cannot find it, agent-gate exits with code 1 and does not block the agent."
+    },
+    "maxOutputChars": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "default": 4000,
+      "description": "Longest command output sent back to the agent. Lines that mention changed files and error lines are kept first; the rest is cut with a count of omitted lines."
+    },
+    "rules": {
+      "type": "array",
+      "description": "Checks on source files. They run after each Claude Code edit and again, on every changed file, when the agent finishes.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "files", "message"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Short name of the rule, shown to the agent in front of each problem."
+          },
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" },
+            "description": "Globs, relative to the repo root, of the files this rule applies to.",
+            "examples": [["src/core/**/*.ts"]]
+          },
+          "ignore": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Globs of files to skip, even when they match \"files\".",
+            "examples": [["**/*.test.ts"]]
+          },
+          "forbidImports": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Modules that must not be imported. \"fs\" also matches \"node:fs\" and \"fs/promises\", but not \"fsevents\". Covers import, export ... from, require() and import(). Type-only imports are ignored.",
+            "examples": [["fs", "child_process"]]
+          },
+          "forbidImportNames": {
+            "type": "array",
+            "description": "Names that must not be imported from a module. Matches the original name, not the alias.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["from", "names"],
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The module. Also matches its subpaths, so \"react\" matches \"react/jsx-runtime\"."
+                },
+                "names": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": { "type": "string" },
+                  "description": "Names or globs, for example \"use*\". \"default\" is the default import and \"*\" a namespace import."
+                }
+              }
+            },
+            "examples": [[{ "from": "react", "names": ["use*"] }]]
+          },
+          "forbidGlobals": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Identifiers that must not be used. There is no scope analysis, so a local variable with the same name is reported too, and property accesses such as obj.fetch are not.",
+            "examples": [["fetch", "process"]]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Shown to the agent with each problem. Quote the line from your CLAUDE.md so it reads the repo's own wording."
+          }
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "description": "Project commands that run when the agent finishes (Stop), in order, stopping at the first failure. They run only after every rule passes.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "run"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Short name of the command, shown to the agent when it fails."
+          },
+          "run": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" },
+            "description": "The command as an argument list. There is no shell. A \"{files}\" argument expands to one argument per changed file, split across several runs when the list is long.",
+            "examples": [["bun", "run", "typecheck"], ["bunx", "eslint", "{files}"]]
+          },
+          "files": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Run only when a changed file matches one of these globs. Without it, the command runs whenever any file changed.",
+            "examples": [["**/*.{ts,tsx}"]]
+          },
+          "timeoutSec": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "default": 120,
+            "description": "Seconds before the command is killed. A command that times out is a warning, not a block."
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "rules": [
+        {
+          "id": "fcis-core-pure",
+          "files": ["src/core/**/*.ts"],
+          "forbidImports": ["fs", "child_process"],
+          "forbidGlobals": ["fetch", "process"],
+          "message": "Core must be pure. Move I/O to the shell."
+        }
+      ],
+      "commands": [{ "name": "typecheck", "run": ["bun", "run", "typecheck"], "timeoutSec": 120 }]
+    }
+  ]
+}

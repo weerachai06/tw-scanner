@@ -1,0 +1,28 @@
+{
+  "name": "@weerachai06/agent-gate",
+  "version": "0.0.0",
+  "description": "Run architecture rules and project checks from AI coding agent hooks (Claude Code, kiro-cli)",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "agent-gate": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "schema.json"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=coverage"
+  },
+  "dependencies": {
+    "@typescript-eslint/typescript-estree": "^8.61.1",
+    "minimatch": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "ajv": "^8.20.0",
+    "typescript": "^5.8.3"
+  }
+}

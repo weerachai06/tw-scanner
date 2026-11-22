@@ -33,9 +33,23 @@ jobs:
         if: always()
         run: |
           echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          sed -E 's/^.*:test: ?//' test-output.log | awk '/^-+\|/{c++} {if(c>=1) print} c==3{exit}' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          # turbo interleaves the packages' output, so group lines by their "<package>:test:" prefix
+          # and print each package's coverage table (first dashed line through the third) separately.
+          awk '
+            match($0, /[^ ]+:test: ?/) {
+              pkg = substr($0, RSTART, index(substr($0, RSTART), ":test:") - 1)
+              line = substr($0, RSTART + RLENGTH)
+              if (line ~ /^-+\|/) dashes[pkg]++
+              if (dashes[pkg] >= 1 && !done[pkg]) {
+                if (!(pkg in table)) order[++n] = pkg
+                table[pkg] = table[pkg] line "\n"
+                if (dashes[pkg] == 3) done[pkg] = 1
+              }
+            }
+            END {
+              for (i = 1; i <= n; i++) printf "### %s\n```\n%s```\n", order[i], table[order[i]]
+            }
+          ' test-output.log >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload coverage report
         if: always()

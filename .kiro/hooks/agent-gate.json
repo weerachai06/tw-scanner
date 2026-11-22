@@ -1,0 +1,27 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "agent-gate-session-start",
+      "trigger": "SessionStart",
+      "action": { "type": "command", "command": "bun packages/agent-gate/src/cli.ts hook --agent kiro" },
+      "timeout": 30,
+      "enabled": true
+    },
+    {
+      "name": "agent-gate-guard",
+      "trigger": "PreToolUse",
+      "matcher": "write",
+      "action": { "type": "command", "command": "bun packages/agent-gate/src/cli.ts hook --agent kiro" },
+      "timeout": 30,
+      "enabled": true
+    },
+    {
+      "name": "agent-gate-stop",
+      "trigger": "Stop",
+      "action": { "type": "command", "command": "bun packages/agent-gate/src/cli.ts hook --agent kiro" },
+      "timeout": 600,
+      "enabled": true
+    }
+  ]
+}

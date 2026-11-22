@@ -3,7 +3,7 @@
  * Generates a changeset file from git commits since the last tag.
  *
  * Usage:
- *   bun scripts/gen-changeset.ts [--bump patch|minor|major]
+ *   bun scripts/gen-changeset.ts [--bump patch|minor|major] [--package <name>]
  *
  * Bump type is inferred from conventional commit prefixes unless overridden:
  *   feat:     → minor
@@ -16,7 +16,6 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as crypto from 'crypto'
 
-const PACKAGE = '@weerachai06/tw-scanner'
 const CHANGESET_DIR = path.resolve(import.meta.dir, '../.changeset')
 
 // ── Git helpers ───────────────────────────────────────────────────────────────
@@ -111,7 +110,14 @@ function argBump(): BumpType | null {
   process.exit(1)
 }
 
+function argPackage(): string {
+  const i = process.argv.indexOf('--package')
+  return i === -1 ? '@weerachai06/tw-scanner' : process.argv[i + 1]
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
+
+const PACKAGE = argPackage()
 
 const tag = lastTag()
 const commits = commitsSince(tag)

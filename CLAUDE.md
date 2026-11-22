@@ -4,12 +4,13 @@ Guidance for Claude Code working in this repo.
 
 ## Monorepo structure
 
-One package right now. Don't add more unless asked.
+Two packages right now. Don't add more unless asked.
 
 ```
 tailwind-validator/
 ├── packages/
-│   └── tw-scanner/          @weerachai06/tw-scanner
+│   ├── tw-scanner/          @weerachai06/tw-scanner
+│   └── agent-gate/          @weerachai06/agent-gate
 ├── package.json             workspace root (private)
 └── turbo.json
 ```
@@ -77,6 +78,14 @@ ScanOptions { src, css }
 ```
 
 Exit codes: `0` = clean, `1` = invalid classes found, `2` = fatal error.
+
+## Architecture (`packages/agent-gate`)
+
+Runs architecture rules from AI agent hooks (Claude Code, kiro-cli) and blocks the agent with the errors. Same shape as tw-scanner: functional core, imperative shell.
+
+- `src/core/` is pure: no `fs`, `child_process`, `process`, or network. Everything it needs is passed in. Test it with inline strings.
+- Shell files (`src/*.ts` outside `core/`) own all I/O and take their I/O functions as parameters, like `compileFn` in tw-scanner. Don't mock modules.
+- Exit code `2` means "block" (the Claude Code hook protocol), not "fatal" as in tw-scanner.
 
 ## Releasing
 

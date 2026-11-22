@@ -1,0 +1,16 @@
+{
+  "rules": [
+    {
+      "id": "fcis-core-pure",
+      "files": ["packages/*/src/core/**/*.ts", "packages/tw-scanner/src/extractor.ts"],
+      "forbidImports": ["fs", "child_process", "net", "http", "https"],
+      "forbidImportNames": [{ "from": "react", "names": ["use*"] }],
+      "forbidGlobals": ["fetch", "process"],
+      "message": "Core must be pure (CLAUDE.md: scanner owns I/O, extractor is pure). Move I/O to the shell."
+    }
+  ],
+  "commands": [
+    { "name": "typecheck", "run": ["bun", "run", "typecheck"], "timeoutSec": 120 },
+    { "name": "test", "run": ["bun", "run", "test"], "timeoutSec": 300 }
+  ]
+}
