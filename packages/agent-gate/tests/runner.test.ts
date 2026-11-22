@@ -641,14 +641,35 @@ describe('runHook — stop with a session baseline', () => {
     expect(w.gitCalls().filter((c) => c.startsWith('diff')).some((c) => c.endsWith(' start123'))).toBe(true)
   })
 
-  it('merges the branch diff and the session diff without duplicates', async () => {
+  it('checks only what changed since the session started, not the whole branch', async () => {
     const config2 = stopConfig({ commands: [{ name: 'lint', run: ['lint', '{files}'] }] })
     const w = world({
       files: { '/repo/agent-gate.json': config2, [BASELINE]: baseline({ guard: { ...guardHashes, 'agent-gate.json': hashContent(config2) } }) },
       diffs: { HEAD: ['a.ts', 'b.ts'], start123: ['b.ts', 'c.ts'] },
     })
     await runHook(stopFor('sess-1'), ROOT, w.deps)
-    expect(w.commandCalls()).toEqual([['lint', 'a.ts', 'b.ts', 'c.ts']])
+    expect(w.commandCalls()).toEqual([['lint', 'b.ts', 'c.ts']])
+  })
+
+  it('ignores a violation committed on the branch before the session started', async () => {
+    const w = world({
+      files: { '/repo/src/core/old.ts': "import fs from 'fs'" },
+      originHead: 'origin/main',
+      mergeBase: 'base999',
+      diffs: { base999: ['src/core/old.ts'], start123: ['src/new.ts'] },
+    })
+    const out = await runHook(stopFor('sess-1'), ROOT, w.deps)
+    expect(out).toEqual({ exitCode: 0, stdout: '', stderr: '' })
+  })
+
+  it('falls back to the whole branch when the baseline commit no longer exists', async () => {
+    const w = world({
+      files: { '/repo/src/core/old.ts': "import fs from 'fs'" },
+      originHead: 'origin/main',
+      mergeBase: 'base999',
+      diffs: { base999: ['src/core/old.ts'] },
+    })
+    expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
   })
 
   it('ignores the session diff when the baseline commit no longer exists', async () => {
@@ -688,11 +709,102 @@ describe('runHook — stop with a session baseline', () => {
     expect((await runHook(stopFor(), ROOT, w.deps)).exitCode).toBe(0)
   })
 
+  describe('does not block twice on the same problem (Kiro sends no retry flag)', () => {
+    const bad = { '/repo/src/core/x.ts': "import fs from 'fs'" }
+    const badWorld = (over: World = {}) => world({ files: bad, changed: ['src/core/x.ts'], ...over })
+
+    it('blocks the first time, then warns when the same problem comes back', async () => {
+      const w = badWorld()
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+      const again = await runHook(stopFor('sess-1'), ROOT, w.deps)
+      expect(again.exitCode).toBe(1)
+      expect(again.stderr).toContain('src/core/x.ts:1:0 imports "fs"')
+    })
+
+    it('blocks again when the problem is different', async () => {
+      const w = badWorld()
+      await runHook(stopFor('sess-1'), ROOT, w.deps)
+      w.store['/repo/src/core/x.ts'] = "\nimport fs from 'fs'"
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+    })
+
+    it('forgets the problem once a Stop is clean, so it blocks if it returns', async () => {
+      const w = badWorld()
+      await runHook(stopFor('sess-1'), ROOT, w.deps)
+      w.store['/repo/src/core/x.ts'] = 'export const a = 1'
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(0)
+      w.store['/repo/src/core/x.ts'] = "import fs from 'fs'"
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+    })
+
+    it('treats a failing command with changing output as the same problem', async () => {
+      const w = world({
+        changed: ['src/a.ts'],
+        commands: { 'bun run typecheck': { exitCode: 1, stdout: 'error 1', stderr: '', timedOut: false } },
+      })
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+      const git = w.deps.runCommand
+      w.deps.runCommand = async (argv, opts) =>
+        argv[0] === 'git' ? git(argv, opts) : { exitCode: 1, stdout: 'error 1 (12ms)', stderr: '', timedOut: false }
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(1)
+    })
+
+    it('still blocks when the memory cannot be saved', async () => {
+      const w = badWorld()
+      w.deps.writeFile = () => {
+        throw new Error('read-only')
+      }
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+    })
+
+    it('always blocks when there is no baseline to remember in', async () => {
+      const w = stopWorld({ files: { '/repo/agent-gate.json': config, ...bad }, changed: ['src/core/x.ts'] })
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+      expect((await runHook(stopFor('sess-1'), ROOT, w.deps)).exitCode).toBe(2)
+      expect(w.writes).toEqual([])
+    })
+
+    it('works for Kiro: second identical block is a warning, not decision:block', async () => {
+      const w = badWorld()
+      const raw = JSON.stringify({ session_id: 'sess-1', hook_event_name: 'Stop', cwd: ROOT })
+      expect(JSON.parse((await runHook(raw, ROOT, w.deps, 'kiro')).stdout).decision).toBe('block')
+      const again = await runHook(raw, ROOT, w.deps, 'kiro')
+      expect(again.exitCode).toBe(1)
+      expect(again.stdout).toBe('')
+    })
+  })
+
   it('reports session problems to Kiro as a decision:block JSON', async () => {
     const w = world({ stash: 'beef' })
     const raw = JSON.stringify({ session_id: 'sess-1', hook_event_name: 'Stop', cwd: ROOT })
     const out = await runHook(raw, ROOT, w.deps, 'kiro')
     expect(out.exitCode).toBe(0)
     expect(JSON.parse(out.stdout).reason).toContain('[session] git stash changed')
+  })
+})
+
+describe('runHook — stop retry (stop_hook_active)', () => {
+  const retryRaw = (active: boolean) =>
+    JSON.stringify({ cwd: ROOT, hook_event_name: 'Stop', stop_hook_active: active })
+  const violating = () =>
+    stopWorld({
+      files: { '/repo/agent-gate.json': stopConfig(), '/repo/src/core/x.ts': "import fs from 'fs'" },
+      changed: ['src/core/x.ts'],
+    })
+
+  it('blocks on the first Stop', async () => {
+    expect((await runHook(retryRaw(false), ROOT, violating().deps)).exitCode).toBe(2)
+  })
+
+  it('does not block again on a retry: exits 1 and still reports the problem', async () => {
+    const out = await runHook(retryRaw(true), ROOT, violating().deps)
+    expect(out.exitCode).toBe(1)
+    expect(out.stderr).toContain('src/core/x.ts:1:0 imports "fs"')
+  })
+
+  it('allows silently on a retry when everything is clean', async () => {
+    const w = stopWorld({ files: { '/repo/agent-gate.json': stopConfig() } })
+    expect(await runHook(retryRaw(true), ROOT, w.deps)).toEqual({ exitCode: 0, stdout: '', stderr: '' })
   })
 })

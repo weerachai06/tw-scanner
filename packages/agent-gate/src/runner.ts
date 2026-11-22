@@ -2,7 +2,7 @@ import * as path from 'path'
 import { baselinePath, hashContent, parseBaseline, tamperProblems } from './core/baseline.js'
 import { formatClaudeOutput, parseClaudeInput } from './core/claude.js'
 import { parseConfig } from './core/config.js'
-import { decide } from './core/decide.js'
+import { decide, relax } from './core/decide.js'
 import { GUARD_DIRS, GUARD_FILES, guard } from './core/guard.js'
 import { formatKiroOutput, parseKiroInput } from './core/kiro.js'
 import { checkFiles, type SourceFile } from './core/rules.js'
@@ -72,9 +72,16 @@ async function diffTarget(root: string, base: string | undefined, deps: Deps): P
   return base === undefined ? 'HEAD' : { error: `base "${base}" not found (git merge-base ${base} HEAD failed)` }
 }
 
+const listChanged = (target: string, root: string, deps: Deps) =>
+  git(['diff', '-z', '--name-only', '--relative', '--diff-filter=d', target], root, deps)
+const listUntracked = (root: string, deps: Deps) => git(['ls-files', '-z', '--others', '--exclude-standard'], root, deps)
+
 /**
- * Files changed since the diff target and, when a session baseline exists, since the commit the
- * session started at (so commits made without a remote are still seen), plus untracked files.
+ * Files changed in this session when a baseline exists: since the commit the session started at,
+ * plus untracked files. Work committed on the branch before the session is not the agent's to fix.
+ * Without a baseline, or when its commit no longer exists (rebased away), the whole branch counts:
+ * since the merge-base with the base branch, so commits the agent made still count.
+ * An explicit `base` that cannot be resolved is an error.
  */
 async function changedFiles(
   root: string,
@@ -82,15 +89,14 @@ async function changedFiles(
   sessionHead: string | null,
   deps: Deps,
 ): Promise<string[] | { error: string }> {
+  if (sessionHead !== null) {
+    const [session, untracked] = await Promise.all([listChanged(sessionHead, root, deps), listUntracked(root, deps)])
+    if (session.exitCode === 0) return parseGitFiles(session.stdout, untracked.exitCode === 0 ? untracked.stdout : '')
+  }
+
   const target = await diffTarget(root, base, deps)
   if (typeof target !== 'string') return target
-
-  const targets = sessionHead !== null && sessionHead !== target ? [target, sessionHead] : [target]
-  const outcomes = await Promise.all([
-    ...targets.map((t) => git(['diff', '-z', '--name-only', '--relative', '--diff-filter=d', t], root, deps)),
-    git(['ls-files', '-z', '--others', '--exclude-standard'], root, deps),
-  ])
-  // A target that no longer exists (rebased away, garbage collected) is skipped, not fatal.
+  const outcomes = await Promise.all([listChanged(target, root, deps), listUntracked(root, deps)])
   const listed = outcomes.filter((o) => o.exitCode === 0)
   if (listed.length === 0) return { error: 'could not list changed files (is this a git repository?)' }
   return parseGitFiles(...listed.map((o) => o.stdout))
@@ -138,25 +144,51 @@ async function startSession(
 
 type Format = (decision: Decision) => AgentOutput
 
+/** Names what went wrong, not the command output, which can change on every run (timings). */
+const signatureOf = (parts: unknown): string => hashContent(JSON.stringify(parts))
+
+/** Best effort: when it cannot be saved, Stop just blocks every time, as before. */
+function remember(file: string | null, baseline: Snapshot | null, lastBlock: string | null, deps: Deps): void {
+  if (file === null || baseline === null || (baseline.lastBlock ?? null) === lastBlock) return
+  try {
+    deps.writeFile(file, JSON.stringify({ ...baseline, lastBlock }))
+  } catch {}
+}
+
 async function runStop(
   root: string,
   config: Config,
   deps: Deps,
   format: Format,
   sessionId: string | undefined,
+  retry: boolean,
 ): Promise<AgentOutput> {
   const file = sessionId === undefined ? null : baselinePath(deps.tmpDir, sessionId)
   const baseline = file === null ? null : parseBaseline(deps.readFile(file))
+  /**
+   * Do not trap the agent in a loop: a block on a retry (Claude's stop_hook_active), or on the same
+   * problems as the last block (Kiro sends no retry flag), is reported as a warning instead.
+   * `signature` is null when there is nothing to block on.
+   */
+  const settle = (decision: Decision, signature: string | null = null) => {
+    const blocking = decision.action === 'block'
+    const repeated = blocking && signature !== null && baseline?.lastBlock === signature
+    remember(file, baseline, blocking ? signature : null, deps)
+    return format(retry || repeated ? relax(decision) : decision)
+  }
   const problems = baseline === null ? [] : tamperProblems(baseline, await takeSnapshot(root, deps))
 
   const changed = await changedFiles(root, config.base, baseline?.head ?? null, deps)
   if ('error' in changed) return failure(changed.error)
-  if (changed.length === 0 && problems.length === 0) return format({ action: 'allow' })
+  if (changed.length === 0 && problems.length === 0) return settle({ action: 'allow' })
 
   // Cheap checks first: rules are pure, so a broken rule skips the slow commands.
   const covered = selectFiles(changed, config.rules.flatMap((r) => r.files))
   const violations = checkFiles(readSources(covered, root, deps), config.rules)
-  if (problems.length + violations.length > 0) return format(decide(violations, [], problems))
+  if (problems.length + violations.length > 0) {
+    const where = violations.map((v) => [v.ruleId, v.file, v.line, v.col, v.kind])
+    return settle(decide(violations, [], problems), signatureOf([problems, where]))
+  }
 
   const failures: CommandFailure[] = []
   for (const plan of planCommands(config.commands, changed)) {
@@ -171,7 +203,8 @@ async function runStop(
     })
     break
   }
-  return format(decide([], failures))
+  const failed = failures.filter((f) => f.exitCode !== null).map((f) => [f.name, f.exitCode])
+  return settle(decide([], failures), signatureOf(failed))
 }
 
 /** Fail-open: a problem in agent-gate itself exits 1, which does not block the agent. */
@@ -199,7 +232,7 @@ export async function runHook(
   const parsed = parseConfig(configSource)
   if (!parsed.ok) return failure(`invalid ${CONFIG_FILE}:\n${parsed.errors.join('\n')}`)
 
-  if (event.kind === 'stop') return runStop(root, parsed.config, deps, format, event.sessionId)
+  if (event.kind === 'stop') return runStop(root, parsed.config, deps, format, event.sessionId, event.retry)
 
   const rel = event.files.flatMap((f) => toRelative(f, root) ?? [])
   return format(decide(checkFiles(readSources(rel, root, deps), parsed.config.rules)))

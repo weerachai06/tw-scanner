@@ -94,4 +94,6 @@ export interface Snapshot {
   stash: string | null
   /** Hash of each file that controls the checks, null when the file is missing. */
   guard: Record<string, string | null>
+  /** Signature of the problems Stop last blocked on, so the same ones are not blocked twice. */
+  lastBlock?: string | null
 }

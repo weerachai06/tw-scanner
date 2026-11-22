@@ -22,6 +22,7 @@ export function parseBaseline(raw: string | null): Snapshot | null {
   }
   const text = (v: unknown) => v === null || typeof v === 'string'
   if (!data || typeof data !== 'object' || !text(data.head) || !text(data.stash)) return null
+  if (data.lastBlock !== undefined && !text(data.lastBlock)) return null
   if (!data.guard || typeof data.guard !== 'object') return null
   if (!Object.values(data.guard).every(text)) return null
   return data as Snapshot

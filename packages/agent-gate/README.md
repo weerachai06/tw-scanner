@@ -92,6 +92,8 @@ Commands run in order and stop at the first failure. Output is trimmed to `maxOu
 
 Stop checks files that changed on this branch, not just uncommitted ones, so work the agent already committed still counts. It diffs the working tree against the merge-base (the commit where the branch left the base branch), and adds untracked files. Deleted and git-ignored files are skipped.
 
+This is the scope when no session baseline exists. With one, Stop checks only what changed since the session started (see [Session baseline](#session-baseline-optional-recommended)).
+
 The base branch is `base` from `agent-gate.json` (for example `"origin/develop"`). Without it, agent-gate uses the remote's default branch (`origin/HEAD`, usually `origin/main`).
 
 | Situation | What happens |
@@ -100,7 +102,7 @@ The base branch is `base` from `agent-gate.json` (for example `"origin/develop"`
 | No `base`, and git finds no `origin/HEAD` or no merge-base (no remote, or a shallow clone) | Falls back to `HEAD`: only uncommitted and untracked files are checked, so work the agent commits is no longer seen. |
 | You are on the base branch | Local commits not yet pushed, uncommitted files, and untracked files. |
 
-Because the scope is the whole branch, a rule violation in an earlier commit on the branch (yours or a teammate's) is also reported. Violations that were already on the base branch are not.
+Without a [session baseline](#session-baseline-optional-recommended), the scope is the whole branch, so a rule violation in an earlier commit on the branch (yours or a teammate's) is also reported. Violations that were already on the base branch are not. With a baseline, only changes since the session started are checked (see below).
 
 Commands without a `files` filter (`typecheck`, `test`) run on the whole project whenever at least one file changed. If nothing changed, nothing runs.
 
@@ -138,7 +140,7 @@ Commands without a `files` filter (`typecheck`, `test`) run on the whole project
 | `PostToolUse` | Checks the rules on the file that was just edited. |
 | `Stop` | Takes the files changed on this branch plus untracked files (see above), checks the rules on them, then runs the commands. If nothing changed, it allows right away. |
 
-Exit codes: `0` allow, `2` block (the errors go to the agent on stderr), `1` agent-gate itself failed or a command timed out. `1` does not block the agent: a missing or invalid config, a timeout, or a folder that isn't a git repo all fail open.
+Exit codes: `0` allow, `2` block (the errors go to the agent on stderr), `1` agent-gate itself failed or a command timed out. `1` does not block the agent: a missing or invalid config, a timeout, or a folder that isn't a git repo all fail open. A `Stop` that would block a second time in a row (`stop_hook_active`) also exits `1`, so the agent can finish.
 
 ## kiro-cli setup
 
@@ -195,7 +197,7 @@ echo '{"hook_event_name":"PreToolUse","cwd":"'"$PWD"'","tool_name":"str_replace"
 echo '{"hook_event_name":"Stop","cwd":"'"$PWD"'"}' | npx --yes @weerachai06/agent-gate hook --agent kiro; echo "exit=$?"
 ```
 
-`Stop` needs a git repository to find the changed files. Outside one it exits `1` with a message and does not block. Inside one, it diffs against the merge-base with the base branch, as described above.
+`Stop` needs a git repository to find the changed files. Outside one it exits `1` with a message and does not block. Inside one, it diffs against the session's start commit if a baseline exists, otherwise against the merge-base with the base branch, as described above.
 
 ### Payloads Kiro sends
 
@@ -205,7 +207,7 @@ Captured on kiro-cli 3.5.0 (V3):
 |---|---|
 | `PreToolUse` | `session_id`, `hook_event_name`, `cwd`, `tool_name`, `tool_input` |
 | `PostToolUse` | the same, plus `tool_response` (a string). agent-gate ignores it. |
-| `Stop` | `session_id`, `hook_event_name`, `cwd`. There is no retry flag. |
+| `Stop` | `session_id`, `hook_event_name`, `cwd`, `stop_hook_active`. |
 
 | `tool_name` | `tool_input` |
 |---|---|
@@ -231,8 +233,13 @@ A diff can't show everything an agent does. Register a `SessionStart` hook and a
 | Gap | What Stop does with the baseline |
 |---|---|
 | `git stash` hides uncommitted changes | Blocks if a stash entry was added during the session. |
-| No remote or a shallow clone, so committed work is not seen | Also diffs against the commit the session started at, so commits made during the session are checked. |
+| No remote or a shallow clone, so committed work is not seen | Diffs against the commit the session started at, so commits made during the session are checked. |
+| Problems that were already on the branch before the session | Not reported. Only files changed since the session started count, so the agent is not blocked on code it did not touch. If the start commit no longer exists (rebased away), the whole branch is checked again. |
 | A guard file edited through a shell command such as `sed -i` | Blocks if `agent-gate.json`, `.claude/settings*.json`, or a file in `.kiro/hooks/` changed. |
+
+If Claude Code sends `stop_hook_active: true` (the agent was already blocked once this turn), a block becomes a warning: exit `1`, same text. The agent is told again but cannot get stuck in a loop.
+
+Kiro sends no such flag, so with the baseline agent-gate also remembers the problems it last blocked on. If the next Stop finds the same problems (same rules, files and positions, or the same failing commands), it warns instead of blocking. A different set of problems, or a clean Stop, resets this. Without a baseline there is nowhere to remember, so Stop blocks every time.
 
 Add the hook next to the others. Claude Code, in `.claude/settings.json`:
 
@@ -270,7 +277,7 @@ Without the `SessionStart` hook, everything works as before and these three gaps
 - `forbidGlobals` has no scope analysis, so a local variable named `fetch` is reported too. Destructuring patterns are skipped, and `globalThis.fetch` is not seen.
 - `PostToolUse` (Claude Code) runs after the file is written, so the bad file stays on disk until the agent fixes it.
 - On Kiro, rules and commands are only checked when the agent finishes, and only once per turn.
-- Files outside the changed set are never checked: a violation that already exists on the base branch is ignored, and so is a git-ignored file.
+- Files outside the changed set are never checked: a violation that already exists on the base branch is ignored, and so is a git-ignored file. With the `SessionStart` hook, a violation committed on the branch before the session is ignored too.
 - Without a usable remote base (no remote, or a shallow clone), the scope falls back to uncommitted files, and an agent that commits its work before finishing is not checked. Set `base`, or register the `SessionStart` hook, to avoid this.
 - The guard sees Claude's `Write`, `Edit`, `MultiEdit` and Kiro's `fs_write`, `str_replace`. A shell command such as `sed -i` can still change a protected file. With the `SessionStart` hook registered, Stop reports that change, but the file is already changed by then.
 - An agent can still dodge checks with `as any`, `eslint-disable`, or by deleting tests. Make the commands cover that.
