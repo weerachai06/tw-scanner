@@ -1,5 +1,11 @@
 # @weerachai06/agent-gate
 
+## 0.2.0
+
+### Minor Changes
+
+- 0b02dc3: Add OpenCode support. OpenCode has no command hooks, so the package ships a plugin (`opencode/agent-gate.js`) that calls `agent-gate hook --agent opencode`. It guards edits to the files that control the checks, saves the session baseline, and sends the agent back when Stop fails. The guard also protects `opencode.json(c)` and `.opencode/plugin(s)/`.
+
 ## 0.1.3
 
 ### Patch Changes
