@@ -1,5 +1,11 @@
 # @weerachai06/agent-gate
 
+## 0.2.1
+
+### Patch Changes
+
+- a806935: Add OpenCode to the package description, so the npm page lists all three supported agents.
+
 ## 0.2.0
 
 ### Minor Changes
