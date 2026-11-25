@@ -117,6 +117,34 @@ describe('runHook — guard', () => {
   })
 })
 
+describe('runHook — opencode', () => {
+  const opencode = (tool_name: string, tool_input: object) =>
+    JSON.stringify({ cwd: ROOT, session_id: 's', hook_event_name: 'PreToolUse', tool_name, tool_input })
+
+  it('blocks an edit to the gate plugin with exit 2 and the reason on stderr', async () => {
+    const out = await runHook(
+      opencode('edit', { filePath: '/repo/.opencode/plugins/agent-gate.js' }),
+      ROOT,
+      depsWith({}),
+      'opencode',
+    )
+    expect(out.exitCode).toBe(2)
+    expect(out.stderr).toContain('.opencode/plugins/agent-gate.js')
+  })
+
+  it('blocks a patch that touches agent-gate.json among other files', async () => {
+    const patchText = '*** Begin Patch\n*** Update File: src/a.ts\n*** Update File: agent-gate.json\n*** End Patch'
+    const out = await runHook(opencode('patch', { patchText }), ROOT, depsWith({}), 'opencode')
+    expect(out.exitCode).toBe(2)
+    expect(out.stderr).toContain('agent-gate.json')
+  })
+
+  it('allows an ordinary edit', async () => {
+    const out = await runHook(opencode('write', { path: 'src/a.ts' }), ROOT, depsWith({}), 'opencode')
+    expect(out).toEqual({ exitCode: 0, stdout: '', stderr: '' })
+  })
+})
+
 describe('runHook — other events', () => {
   it('allows ignored events', async () => {
     expect((await runHook('not json', ROOT, depsWith({}))).exitCode).toBe(0)
@@ -468,6 +496,10 @@ describe('runHook — session start', () => {
         'agent-gate.json': hashContent(config),
         '.claude/settings.json': null,
         '.claude/settings.local.json': null,
+        'opencode.json': null,
+        'opencode.jsonc': null,
+        '.opencode/opencode.json': null,
+        '.opencode/opencode.jsonc': null,
         '.kiro/hooks/a.json': hashContent('{"hooks":[]}'),
       },
     })

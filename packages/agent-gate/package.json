@@ -9,7 +9,8 @@
   },
   "files": [
     "dist",
-    "schema.json"
+    "schema.json",
+    "opencode"
   ],
   "scripts": {
     "build": "tsc",

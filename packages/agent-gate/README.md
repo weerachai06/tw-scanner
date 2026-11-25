@@ -4,7 +4,7 @@ Run architecture rules and project checks from AI coding agent hooks, and block 
 
 Agents ignore repo rules and say "done" without checking. A hook can't make code correct, but it can stop the agent from finishing while your checks fail.
 
-**Supported agents:** Claude Code and kiro-cli (V3, tested on 3.5.0).
+**Supported agents:** Claude Code, kiro-cli (V3, tested on 3.5.0), and OpenCode (plugin API of 1.19.x).
 
 ## Install
 
@@ -215,6 +215,33 @@ kiro-cli chat --no-interactive --trust-workspace --trust-tools=fs_write "your pr
 
 `--no-interactive` can't ask for approval, so any tool you haven't trusted is denied. Shell commands are denied unless you pass `--trust-tools=run_command` or `--trust-all-tools`. Trusting the shell lets an agent run something like `sed -i` on a protected file, which the guard does not see.
 
+## OpenCode setup
+
+OpenCode has no command hooks, only plugins. Copy the plugin that ships with this package into your project:
+
+```bash
+mkdir -p .opencode/plugins
+cp node_modules/@weerachai06/agent-gate/opencode/agent-gate.js .opencode/plugins/
+```
+
+Without a local install, download `opencode/agent-gate.js` from this repo instead. OpenCode loads every file in `.opencode/plugins/` on start. Start OpenCode at the repo root, where `agent-gate.json` lives. The plugin runs `npx --yes @weerachai06/agent-gate hook --agent opencode` for you.
+
+| OpenCode event | What it does |
+|---|---|
+| `tool.execute.before` on `edit`, `write`, `patch` | Refuses edits to `agent-gate.json`, `opencode.json(c)`, `.opencode/plugin(s)/**`, and the Claude and Kiro files above. The agent sees the reason as a tool error. |
+| `session.created` | Saves the session baseline (see below). |
+| `session.idle` | Runs the rules and commands on the uncommitted files. If they fail, the plugin sends the errors to the agent as a new message. |
+
+Differences from Claude Code:
+
+- **No per-edit check.** Rules run on `session.idle`, as on Kiro.
+- **One retry.** After the plugin sends the agent back, the next `session.idle` is a retry: a block becomes a warning and nothing is sent. This is the same rule as `stop_hook_active` in Claude Code.
+- **Subagent sessions are skipped.** Only the main session is checked.
+- Edit tool paths can be absolute or relative, and the file key is `filePath` or `path` depending on the OpenCode version. agent-gate accepts both. For `patch`, it reads every `*** Add/Update/Delete File` and `*** Move to` line.
+- This targets the V1 plugin API (`@opencode-ai/plugin` 1.19.x, config key `plugin`). OpenCode's newer V2 plugins use a different entry point and are not supported yet.
+
+To use another command (a local build, for example), pass it as a plugin option: `"plugin": [["./.opencode/plugins/agent-gate.js", { "command": ["node", "dist/cli.js", "hook", "--agent", "opencode"] }]]`. Only needed in `opencode.json`, not for the default setup.
+
 ## Session baseline (optional, recommended)
 
 A diff can't show everything an agent does. Register a `SessionStart` hook and agent-gate saves what the repo looks like when the session begins: the top `git stash` entry, and a hash of each file that controls the checks. `Stop` then compares against it, which closes two gaps:
@@ -237,6 +264,8 @@ Add the hook next to the others. Claude Code, in `.claude/settings.json`:
   }
 ]
 ```
+
+OpenCode needs nothing extra: the plugin already sends `session.created`.
 
 kiro-cli, one more entry in the `hooks` array of `.kiro/hooks/agent-gate.json`:
 
@@ -266,7 +295,7 @@ Without the `SessionStart` hook, everything works as before and these three gaps
 - On Kiro, rules and commands are only checked when the agent finishes, and only once per turn.
 - Files outside the changed set are never checked: a violation that is already committed is ignored, and so is a git-ignored file.
 - An agent that commits its work before finishing is not checked, because only uncommitted changes count.
-- The guard sees Claude's `Write`, `Edit`, `MultiEdit` and Kiro's `fs_write`, `str_replace`. A shell command such as `sed -i` can still change a protected file. With the `SessionStart` hook registered, Stop reports that change, but the file is already changed by then.
+- The guard sees Claude's `Write`, `Edit`, `MultiEdit`, Kiro's `fs_write`, `str_replace`, and OpenCode's `edit`, `write`, `patch`. A shell command such as `sed -i` can still change a protected file. With the `SessionStart` hook registered, Stop reports that change, but the file is already changed by then.
 - An agent can still dodge checks with `as any`, `eslint-disable`, or by deleting tests. Make the commands cover that.
 - Commands in `agent-gate.json` run on every Stop with your permissions, like `package.json` scripts. Review changes to the file.
 

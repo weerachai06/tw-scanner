@@ -1,4 +1,4 @@
-export type Agent = 'claude' | 'kiro'
+export type Agent = 'claude' | 'kiro' | 'opencode'
 
 export type HookEvent =
   | { kind: 'edit'; agent: Agent; cwd: string; tool: string; files: string[] }
