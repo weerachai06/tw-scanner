@@ -5,6 +5,7 @@ import { parseConfig } from './core/config.js'
 import { decide, relax } from './core/decide.js'
 import { GUARD_DIRS, GUARD_FILES, guard } from './core/guard.js'
 import { formatKiroOutput, parseKiroInput } from './core/kiro.js'
+import { parseOpencodeInput } from './core/opencode.js'
 import { checkFiles, type SourceFile } from './core/rules.js'
 import { parseGitFiles, planCommands, selectFiles, toRelative } from './core/scope.js'
 import { summarizeOutput } from './core/summarize.js'
@@ -37,6 +38,8 @@ const adapters: Record<
 > = {
   claude: { parse: parseClaudeInput, format: formatClaudeOutput },
   kiro: { parse: parseKiroInput, format: formatKiroOutput },
+  // The plugin reads exit 2 + stderr, as Claude Code's hooks do, for every event.
+  opencode: { parse: parseOpencodeInput, format: formatClaudeOutput },
 }
 
 const failure = (message: string): AgentOutput => ({

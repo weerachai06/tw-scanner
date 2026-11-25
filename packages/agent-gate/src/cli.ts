@@ -30,8 +30,8 @@ async function main() {
   const argv = process.argv.slice(2)
   const agent = argv[argv.indexOf('--agent') + 1]
 
-  if (argv[0] !== 'hook' || (agent !== 'claude' && agent !== 'kiro')) {
-    console.error('Usage: agent-gate hook --agent claude|kiro   (hook JSON on stdin)')
+  if (argv[0] !== 'hook' || (agent !== 'claude' && agent !== 'kiro' && agent !== 'opencode')) {
+    console.error('Usage: agent-gate hook --agent claude|kiro|opencode   (hook JSON on stdin)')
     process.exit(1)
   }
 

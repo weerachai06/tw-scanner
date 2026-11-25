@@ -11,6 +11,10 @@ describe('guard', () => {
     '.claude/settings.json',
     '.claude/settings.local.json',
     '.kiro/hooks/capture.json',
+    'opencode.jsonc',
+    '.opencode/opencode.json',
+    '.opencode/plugins/agent-gate.js',
+    '.opencode/plugin/agent-gate.js',
   ])('blocks edits to %s', (file) => {
     const decision = guard(['src/a.ts', file])
     expect(decision.action).toBe('block')
