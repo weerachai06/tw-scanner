@@ -1,7 +1,7 @@
 {
   "name": "@weerachai06/agent-gate",
-  "version": "0.1.2",
-  "description": "Run architecture rules and project checks from AI coding agent hooks (Claude Code, kiro-cli, OpenCode)",
+  "version": "0.1.3",
+  "description": "Run architecture rules and project checks from AI coding agent hooks (Claude Code, kiro-cli)",
   "license": "MIT",
   "type": "module",
   "bin": {
